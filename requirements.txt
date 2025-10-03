@@ -1,0 +1,14 @@
+# Telegram Bot Framework - גרסה אחרונה עם תמיכה async
+python-telegram-bot==22.5
+
+# Scheduler - לתזמון נעילה/פתיחה אוטומטית
+APScheduler==3.11.0
+
+# Timezone Management - לעבודה נכונה עם שעות
+pytz
+
+# HTTP Requests - למשיכת זמני שבת מ-Hebcal
+requests
+
+# Environment Variables - לטעינת משתנים מקומית (development)
+python-dotenv
