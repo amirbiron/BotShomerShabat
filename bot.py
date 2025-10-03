@@ -28,6 +28,13 @@ scheduler = AsyncIOScheduler()
 application = None
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """
+    מטפל בשגיאות גלובליות כדי למנוע ספאמים בלוגים ללא error handlers
+    """
+    logger.exception("Unhandled exception while processing an update", exc_info=context.error)
+
+
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     """
     בודק אם המשתמש הוא אדמין בקבוצה
@@ -51,9 +58,15 @@ async def lock_group(context: ContextTypes.DEFAULT_TYPE = None):
         bot = application.bot if application else context.bot
         
         # הרשאות מוגבלות - רק אדמינים יכולים לשלוח
+        # התאמה ל-PTB/Bot API חדשים: פירוק הרשאת מדיה לסוגים
         permissions = ChatPermissions(
             can_send_messages=False,
-            can_send_media_messages=False,
+            can_send_audios=False,
+            can_send_documents=False,
+            can_send_photos=False,
+            can_send_videos=False,
+            can_send_video_notes=False,
+            can_send_voice_notes=False,
             can_send_polls=False,
             can_send_other_messages=False,
             can_add_web_page_previews=False
@@ -87,9 +100,15 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE = None):
         bot = application.bot if application else context.bot
         
         # הרשאות מלאות - כולם יכולים לשלוח
+        # התאמה ל-PTB/Bot API חדשים: פירוק הרשאת מדיה לסוגים
         permissions = ChatPermissions(
             can_send_messages=True,
-            can_send_media_messages=True,
+            can_send_audios=True,
+            can_send_documents=True,
+            can_send_photos=True,
+            can_send_videos=True,
+            can_send_video_notes=True,
+            can_send_voice_notes=True,
             can_send_polls=True,
             can_send_other_messages=True,
             can_add_web_page_previews=True
@@ -357,6 +376,8 @@ async def main():
         application.add_handler(CommandHandler("lock", cmd_lock))
         application.add_handler(CommandHandler("unlock", cmd_unlock))
         application.add_handler(CommandHandler("help", cmd_help))
+        # רישום error handler גלובלי
+        application.add_error_handler(error_handler)
         
         # בדיקת חיבור לבוט
         me = await application.bot.get_me()
