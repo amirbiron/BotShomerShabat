@@ -32,6 +32,36 @@ STORAGE_FILE = 'groups.json'
 _storage_cache: dict[str, dict] = {}
 _search_cache_by_chat: dict[str, dict[str, str]] = {}
 
+# רשימת ערים נפוצות בישראל עם מזהי GeoName
+POPULAR_CITIES = {
+    # מרכז
+    "ירושלים": {"id": "281184", "name": "ירושלים"},
+    "תל אביב": {"id": "293397", "name": "תל אביב - יפו"},
+    "פתח תקווה": {"id": "293322", "name": "פתח תקווה"},
+    "רמת גן": {"id": "293825", "name": "רמת גן"},
+    "בני ברק": {"id": "295620", "name": "בני ברק"},
+    "חולון": {"id": "295629", "name": "חולון"},
+    "ראשון לציון": {"id": "293788", "name": "ראשון לציון"},
+    "רחובות": {"id": "293703", "name": "רחובות"},
+    # צפון
+    "חיפה": {"id": "294801", "name": "חיפה"},
+    "נצרת": {"id": "294098", "name": "נצרת"},
+    "טבריה": {"id": "293100", "name": "טבריה"},
+    "צפת": {"id": "293082", "name": "צפת"},
+    "עכו": {"id": "295721", "name": "עכו"},
+    "קריית שמונה": {"id": "294117", "name": "קריית שמונה"},
+    # שרון והשפלה
+    "נתניה": {"id": "293619", "name": "נתניה"},
+    "הרצליה": {"id": "294071", "name": "הרצליה"},
+    "כפר סבא": {"id": "294946", "name": "כפר סבא"},
+    "רעננה": {"id": "293783", "name": "רעננה"},
+    "מודיעין": {"id": "294751", "name": "מודיעין-מכבים-רעות"},
+    # דרום
+    "באר שבע": {"id": "295530", "name": "באר שבע"},
+    "אשדוד": {"id": "295629", "name": "אשדוד"},
+    "אשקלון": {"id": "295277", "name": "אשקלון"},
+    "אילת": {"id": "295279", "name": "אילת"},
+}
 # ה (שמור בראש הקובץ אחרי טעינת משתנים)
 reporter = create_reporter(
     mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
@@ -97,23 +127,38 @@ def is_valid_geoname_id(value: str) -> bool:
         return False
 
 
-def build_command_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+def build_command_keyboard(is_admin: bool, is_group: bool = True) -> ReplyKeyboardMarkup:
     """
     בונה מקשי מקלדת עם כל הפקודות. מציג פקודות אדמין רק לאדמינים.
+    בצ'אט פרטי מציג רק הודעת עזרה.
     """
+    # בצ'אט פרטי - רק כפתור עזרה
+    if not is_group:
+        user_rows = [
+            [KeyboardButton("❓ עזרה")],
+        ]
+        return ReplyKeyboardMarkup(
+            keyboard=user_rows,
+            resize_keyboard=True,
+            is_persistent=True,
+            one_time_keyboard=False,
+            selective=True,
+            input_field_placeholder="הבוט עובד רק בקבוצות",
+        )
+    
+    # בקבוצה - כפתורים מלאים
     user_rows = [
-        [KeyboardButton("/times"), KeyboardButton("/status")],
-        [KeyboardButton("/help"), KeyboardButton("/menu")],
+        [KeyboardButton("⏰ זמני שבת"), KeyboardButton("📊 סטטוס")],
+        [KeyboardButton("❓ עזרה")],
     ]
 
     admin_rows = []
     if is_admin:
         admin_rows = [
-            [KeyboardButton("/lock"), KeyboardButton("/unlock")],
-            [KeyboardButton("/settings"), KeyboardButton("/admin_help")],
-            [KeyboardButton("/setgeo"), KeyboardButton("/findgeo")],
-            [KeyboardButton("/setoffsets")],
-            [KeyboardButton("/setmessages")],
+            [KeyboardButton("🔒 נעילה"), KeyboardButton("🔓 פתיחה")],
+            [KeyboardButton("⚙️ הגדרות"), KeyboardButton("📚 עזרה למנהלים")],
+            [KeyboardButton("🌍 בחירת עיר"), KeyboardButton("🔍 חיפוש עיר")],
+            [KeyboardButton("🛠️ הגדרות מתקדמות")],
         ]
 
     return ReplyKeyboardMarkup(
@@ -241,40 +286,51 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     reporter.report_activity(update.effective_user.id)
     welcome_msg = """
-🕯️ ברוך הבא לבוט "שומר שבת"!
+🕯️ **ברוך הבא לבוט "שומר שבת"!**
 
 שלום 👋
-אני בוט אוטומטי שנועל את הקבוצה בכניסת שבת ופותח אותה בצאת השבת – בדיוק בזמן, לפי המיקום שהוגדר.
+אני בוט אוטומטי שנועל את הקבוצה בכניסת שבת ופותח אותה בצאת השבת – בדיוק בזמן!
+
+⚠️ **חשוב:** הבוט עובד רק בקבוצות, לא בצ'אטים פרטיים.
 
 ---
 
-📋 פקודות כלליות
-/times – הצגת זמני השבת הקרובה
-/status – מצב הבוט והתזמונים הנוכחיים
-/help – עזרה ומידע למשתמשים
+⌨️ **שימוש קל וחכם!**
+כל הפקודות זמינות בכפתורים נוחים מתחת למקלדת.
+אין צורך להקליד פקודות - פשוט לחץ! 🎯
+
+**כפתורים למשתמשים:**
+• ⏰ **זמני שבת** – מתי נועלים ופותחים
+• 📊 **סטטוס** – מצב הבוט
+• ❓ **עזרה** – מידע נוסף
 
 ---
 
-🔐 פקודות אדמין
-(זמינות רק למנהלי הקבוצה)
-/lock – נעילה ידנית של הקבוצה
-/unlock – פתיחה ידנית של הקבוצה
-/settings – הצגת ההגדרות הקיימות
-/setgeo <GEONAME\_ID> [שם-מיקום] – הגדרת מיקום הקבוצה (חובה למיקום מדויק)
-/setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN] – הגדרת דקות לפני הדלקת נרות ואחרי הבדלה
-/setmessages <LOCK> || <UNLOCK> – הודעות נעילה ופתיחה מותאמות אישית
-/admin\_help – עזרה והסברים מפורטים לפקודות אדמין
+**כפתורים למנהלי קבוצה:**
+• 🌍 **בחירת עיר** – הגדרת מיקום הקבוצה (23 ערים!)
+• 🔍 **חיפוש עיר** – חיפוש עיר נוספת
+• ⚙️ **הגדרות** – הצגת כל ההגדרות
+• 🔒 **נעילה** / 🔓 **פתיחה** – שליטה ידנית
+• 📚 **עזרה למנהלים** – מדריך מלא
 
 ---
 
-✨ הבוט פועל אוטומטית!
+🚀 **התחלה מהירה (למנהלים):**
+1️⃣ לחץ על 🌍 **בחירת עיר**
+2️⃣ בחר את העיר שלך מהכפתורים
+3️⃣ זהו! הבוט יעבוד אוטומטית 🎉
+
+---
+
+✨ הבוט פועל לבד!
 אין צורך להפעיל ידנית – רק להגדיר מיקום פעם אחת, והכול יתבצע מעצמו בכל שבוע 🙌
     """
     is_admin_user = await is_admin(update, context)
+    is_group_chat = update.effective_chat.type in ['group', 'supergroup']
     await update.message.reply_text(
         welcome_msg,
         parse_mode='Markdown',
-        reply_markup=build_command_keyboard(is_admin_user)
+        reply_markup=build_command_keyboard(is_admin_user, is_group_chat)
     )
 
 
@@ -518,38 +574,55 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     reporter.report_activity(update.effective_user.id)
     help_msg = """
-🕯️ עזרה - בוט שומר שבת
+🕯️ **עזרה - בוט שומר שבת**
 
-מה הבוט עושה?
+**מה הבוט עושה?**
 הבוט נועל את הקבוצה אוטומטית בזמן הדלקת נרות ופותח אותה בזמן הבדלה.
 
-📋 פקודות כלליות:
-• /times - הצגת זמני השבת הקרובה
-• /status - סטטוס הבוט והתזמונים הקרובים
-• /help - הודעת עזרה זו
+⚠️ **חשוב:** הבוט עובד רק בקבוצות, לא בצ'אטים פרטיים!
 
-🔐 פקודות אדמין:
-• /lock - נעילה ידנית של הקבוצה
-• /unlock - פתיחה ידנית של הקבוצה
-• /settings - הצגת הגדרות הבוט
+---
 
-❓ שאלות נפוצות:
+⌨️ **שימוש נוח:**
+השתמש בכפתורים במקלדת! פשוט לחץ על הכפתור הרצוי:
+• ⏰ זמני שבת
+• 📊 סטטוס
+• ❓ עזרה
 
-איך הבוט יודע את זמני השבת?
+**למנהלי קבוצה:**
+• 🌍 בחירת עיר (הכי פשוט!)
+• 🔒 נעילה / 🔓 פתיחה
+• ⚙️ הגדרות
+• 📚 עזרה למנהלים (מדריך מפורט)
+
+---
+
+❓ **שאלות נפוצות:**
+
+**איך הבוט יודע את זמני השבת?**
 הבוט משתמש ב-Hebcal API ומושך את הזמנים לפי המיקום שהוגדר.
 
-מה אם זמני השבת לא מדויקים?
-ניתן לשנות את ההגדרות (מיקום, דקות לפני/אחרי) במשתני הסביבה.
+**איך מגדירים מיקום?**
+מנהלים: לחצו על 🌍 **בחירת עיר** ובחרו מהרשימה!
 
-האם הבוט פועל גם בחגים?
+**מה אם זמני השבת לא מדויקים?**
+מנהלים יכולים לשנות את ההגדרות דרך 🛠️ **הגדרות מתקדמות**
+
+**האם הבוט פועל גם בחגים?**
 כרגע הבוט פועל רק בשבת. תמיכה בחגים תתווסף בעתיד.
+
+---
+
+💡 **טיפ:** אין צורך להקליד פקודות - השתמש בכפתורים הנוחים!
 
 ✨ נתקלת בבעיה? פנה למפתח הבוט: @moominAmir
     """
     is_admin_user = await is_admin(update, context)
+    is_group_chat = update.effective_chat.type in ['group', 'supergroup']
     await update.message.reply_text(
         help_msg,
         parse_mode='Markdown',
+        reply_markup=build_command_keyboard(is_admin_user, is_group_chat)
         reply_markup=build_command_keyboard(is_admin_user)
     )
 
@@ -569,43 +642,62 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     reporter.report_activity(update.effective_user.id)
     msg = """
-פקודות בוט שומר שבת
+📚 **מדריך למנהלי הבוט**
 
-שלום 👋
-הבוט נועד לעזור לקבוצות לשמור שבת בצורה נוחה – עם זמני נעילה ופתיחה אוטומטיים, הודעות מותאמות ועוד.
-להלן הפקודות הזמינות לאדמינים:
-
----
-
-🗺️ /setgeo <GEONAME\_ID> [שם-מיקום]
-הגדרת מיקום הקבוצה לפי GeoNames (חובה).
-אפשר לציין גם שם תצוגה (אופציונלי).
-לאחר ההגדרה, הבוט יעדכן את זמני השבת לפי המיקום החדש.
-נשמר בקובץ ההגדרות של הקבוצה.
-
-ℹ️ שים לב: GeoName ID הוא מספרי בלבד (למשל: 281184 לירושלים)
-
-🔎 /findgeo <שם-עיר>
-חיפוש מזהה GeoName לפי שם עיר והצגת כפתורי בחירה מהירים.
+שלום! 👋
+הבוט מציע לך ממשק נוח וקל לשימוש עם כפתורים בעברית.
 
 ---
 
-🕯️ /setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN]
-הגדרת זמני הדלקת נרות והבדלה.
+⌨️ **הכפתורים שלך במקלדת:**
 
-<CANDLE\_MIN> – כמה דקות לפני שקיעה מדליקים נרות.
+🌍 **בחירת עיר** – לחיצה פשוטה מציגה 23 ערים בישראל עם כפתורים, בחר עיר ותתחיל!
 
-[HAVDALAH\_MIN] – כמה דקות אחרי שקיעה עושים הבדלה (אם לא מצוין, נשמר הערך הקודם).
-ברירת מחדל: 0 = שלושה כוכבים.
-הבוט יעדכן את התזמון של ההודעות בהתאם.
+🔍 **חיפוש עיר** – מחפש עיר שלא ברשימה? לחץ והקלד שם עיר
+
+⚙️ **הגדרות** – הצגת כל ההגדרות הנוכחיות (מיקום, זמנים, הודעות)
+
+🔒 **נעילה** / 🔓 **פתיחה** – נעילה/פתיחה ידנית לשעת חירום
+
+🛠️ **הגדרות מתקדמות** – שינוי זמנים, הודעות, הגדרת GeoName ידנית
 
 ---
 
-🔒 /setmessages <LOCK> || <UNLOCK>
-הגדרת הודעות נעילה ופתיחה מותאמות אישית.
-ההודעות נפרדות בעזרת ||.
-דוגמה:
-/setmessages שבת שלום 🌙 || שבוע טוב 🌅
+🚀 **התחלה מהירה (3 צעדים):**
+
+**1️⃣ בחר עיר:**
+לחץ על 🌍 **בחירת עיר** → בחר את העיר שלך מהכפתורים
+הבוט יגדיר הכל אוטומטית!
+
+**2️⃣ בדוק שהכל תקין:**
+לחץ על ⏰ **זמני שבת** – תראה את זמני השבת הקרובה
+
+**3️⃣ זהו!**
+הבוט יעבוד אוטומטית מעכשיו 🎉
+
+---
+
+🔧 **פקודות נוספות (אופציונלי):**
+
+`/setoffsets <דקות-נרות> [דקות-הבדלה]`
+דוגמה: `/setoffsets 20 50`
+(20 דקות לפני שקיעה, 50 דקות אחרי)
+
+`/setmessages <הודעת-נעילה> || <הודעת-פתיחה>`
+דוגמה: `/setmessages שבת שלום 🌙 || שבוע טוב ☀️`
+
+`/searchcity <שם-עיר>` – חיפוש עיר חדשה
+`/setcity <שם>` – בחירה ידנית בהקלדה
+
+---
+
+💡 **טיפים:**
+• רוב הפעולות נעשות בלחיצת כפתור אחת
+• אין צורך להקליד פקודות – השתמש בכפתורים!
+• הבוט עובד רק בקבוצות (לא בצ'אט פרטי)
+• כל השינויים נשמרים אוטומטית
+
+❓ שאלות? לחץ על ❓ **עזרה** למידע נוסף.
     """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -687,7 +779,20 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if not args:
-        await update.message.reply_text("שימוש: /findgeo <שם-עיר>\nלדוגמה: /findgeo Jerusalem או /findgeo תל אביב")
+        usage_msg = """
+🔍 **חיפוש עיר לפי שם**
+
+**שימוש:**
+`/findgeo <שם-עיר>`
+
+**דוגמאות:**
+• `/findgeo Jerusalem`
+• `/findgeo תל אביב`
+• `/findgeo Amsterdam`
+
+💡 **טיפ:** מומלץ לחפש בשם באנגלית לתוצאות טובות יותר.
+        """
+        await update.message.reply_text(usage_msg, parse_mode='Markdown')
         return
     query = ' '.join(args).strip()
     results = search_geonames(query, max_results=8)
@@ -695,9 +800,18 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # לינק לחיפוש ידני
         from urllib.parse import quote
         url = f"https://www.geonames.org/search.html?q={quote(query)}"
-        await update.message.reply_text(
-            f"לא נמצאו תוצאות בחיפוש אוטומטי. אפשר לחפש ידנית כאן:\n{url}\nלאחר שתמצאו מזהה, הגדירו: /setgeo <ID> [שם-מיקום]",
-        )
+        no_results_msg = f"""
+❌ **לא נמצאו תוצאות עבור:** "{query}"
+
+אפשר לנסות:
+• 🌍 לבחור מרשימת ערים נפוצות: `/cities`
+• 🔍 לחפש ידנית ב-GeoNames: [לחץ כאן]({url})
+• 📝 לנסות שם אחר או באנגלית
+
+לאחר מציאת מזהה ב-GeoNames:
+`/setgeo <ID> [שם-עיר]`
+        """
+        await update.message.reply_text(no_results_msg, parse_mode='Markdown', disable_web_page_preview=True)
         return
     chat_id = str(update.effective_chat.id)
     _search_cache_by_chat[chat_id] = {}
@@ -707,11 +821,17 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         country = r.get('countryName') or ''
         admin1 = r.get('adminName1') or ''
         gid = r.get('geonameId') or ''
-        display = f"{name}, {country}{' · ' + admin1 if admin1 else ''} — {gid}"
+        # עיצוב כפתור מסודר יותר בעברית
+        location_parts = [name]
+        if admin1:
+            location_parts.append(admin1)
+        location_parts.append(country)
+        display = f"📍 {', '.join(location_parts)}"
         _search_cache_by_chat[chat_id][str(gid)] = f"{name}{' - ' + admin1 if admin1 else ''}"
         keyboard.append([InlineKeyboardButton(display, callback_data=f"setgeo:{gid}")])
     await update.message.reply_text(
-        "בחרו מיקום מהרשימה:",
+        "🌍 **בחר מיקום מתוצאות החיפוש:**\n\nלחץ על העיר הרצויה להגדרתה.",
+        parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -745,11 +865,283 @@ async def cb_setgeo_from_inline(update: Update, context: ContextTypes.DEFAULT_TY
     _save_storage()
     # ניקוי מקשים אינליין והודעת הצלחה
     try:
-        await query.edit_message_reply_markup(None)
+        await query.edit_message_text(
+            f"✅ **נבחר:** {location_name}\n\nהמיקום הוגדר בהצלחה!",
+            parse_mode='Markdown'
+        )
     except Exception:
         pass
-    await context.bot.send_message(chat_id=chat_id, text=f"✅ הוגדר מיקום לקבוצה זו: {location_name} (GeoName: {geoname_id})")
+    
+    success_msg = f"""
+✅ **המיקום הוגדר בהצלחה!**
+
+📍 **עיר:** {location_name}
+🆔 **GeoName ID:** {geoname_id}
+
+⏰ הבוט יתזמן אוטומטית את נעילת ופתיחת הקבוצה לפי זמני השבת במיקום זה.
+
+💡 להצגת זמני השבת הקרובה: `/times`
+⚙️ להצגת ההגדרות: `/settings`
+    """
+    await context.bot.send_message(chat_id=chat_id, text=success_msg, parse_mode='Markdown')
     schedule_shabbat()
+
+
+async def cmd_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /cities - הצגת רשימת ערים נפוצות עם כפתורים (אדמין בלבד)
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    
+    chat_id = str(update.effective_chat.id)
+    _search_cache_by_chat[chat_id] = {}
+    
+    msg = "🌍 **בחר עיר מהרשימה:**\n\n"
+    msg += "לחץ על העיר הרצויה להגדרתה כמיקום הקבוצה.\n"
+    msg += "🔍 לא מצאת את העיר? השתמש ב-`/searchcity <שם-עיר>`"
+    
+    keyboard = []
+    cities_list = list(POPULAR_CITIES.items())
+    
+    for city_name, city_data in cities_list:
+        gid = city_data['id']
+        display_name = city_data['name']
+        # שמירה במטמון לשימוש ב-callback
+        _search_cache_by_chat[chat_id][str(gid)] = city_name
+        keyboard.append([InlineKeyboardButton(f"📍 {display_name}", callback_data=f"setgeo:{gid}")])
+    
+    await update.message.reply_text(
+        msg,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def cmd_setcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /setcity - בחירת עיר מהרשימה לפי מספר או שם (אדמין בלבד)
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "שימוש: `/setcity <מספר>` או `/setcity <שם-עיר>`\n"
+            "דוגמה: `/setcity 1` או `/setcity ירושלים`\n\n"
+            "להצגת רשימת הערים: `/cities`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    query = ' '.join(args).strip()
+    
+    # בדיקה אם זה מספר (אינדקס ברשימה)
+    if query.isdigit():
+        idx = int(query) - 1
+        cities_list = list(POPULAR_CITIES.items())
+        if 0 <= idx < len(cities_list):
+            city_name, city_data = cities_list[idx]
+            geoname_id = city_data['id']
+            location = city_data['name']
+        else:
+            await update.message.reply_text(
+                f"❌ מספר לא חוקי. בחר מספר בין 1 ל-{len(POPULAR_CITIES)}.\n"
+                "להצגת הרשימה: `/cities`",
+                parse_mode='Markdown'
+            )
+            return
+    else:
+        # חיפוש לפי שם עיר
+        city_data = None
+        city_name = None
+        
+        # חיפוש מדויק
+        if query in POPULAR_CITIES:
+            city_data = POPULAR_CITIES[query]
+            city_name = query
+        else:
+            # חיפוש case-insensitive
+            query_lower = query.lower()
+            for name, data in POPULAR_CITIES.items():
+                if name.lower() == query_lower:
+                    city_data = data
+                    city_name = name
+                    break
+        
+        if not city_data:
+            not_found_msg = f"""
+❌ **העיר "{query}" לא נמצאה ברשימת הערים הנפוצות**
+
+אפשר לנסות:
+• 🌍 להציג את רשימת הערים הזמינות: `/cities`
+• 🔍 לחפש את העיר: `/searchcity {query}`
+• 📝 לכתוב את השם באנגלית או בדיוק כמו ברשימה
+
+**דוגמאות:**
+• `/setcity ירושלים` (בדיוק כמו ברשימה)
+• `/setcity 1` (לפי מספר מהרשימה)
+            """
+            await update.message.reply_text(not_found_msg, parse_mode='Markdown')
+            return
+        
+        geoname_id = city_data['id']
+        location = city_data['name']
+    
+    # הגדרת המיקום בקבוצה
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    
+    # ברירות מחדל
+    g = _get_group_config(chat_id) or {
+        'chat_id': key,
+        'candle_lighting_offset': config.CANDLE_LIGHTING_OFFSET,
+        'havdalah_offset': config.HAVDALAH_OFFSET,
+        'lock_message': config.LOCK_MESSAGE,
+        'unlock_message': config.UNLOCK_MESSAGE,
+    }
+    
+    g.update({'geoname_id': geoname_id, 'location': location})
+    _storage_cache[key] = g
+    _save_storage()
+    
+    success_msg = f"""
+✅ **המיקום הוגדר בהצלחה!**
+
+📍 **עיר:** {location}
+🆔 **GeoName ID:** {geoname_id}
+
+⏰ הבוט יתזמן אוטומטית את נעילת ופתיחת הקבוצה לפי זמני השבת במיקום זה.
+
+💡 להצגת זמני השבת הקרובה: `/times`
+⚙️ להצגת ההגדרות: `/settings`
+    """
+    await update.message.reply_text(success_msg, parse_mode='Markdown')
+    
+    # עדכון תזמון
+    schedule_shabbat()
+
+
+async def cmd_searchcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /searchcity - חיפוש עיר חדשה (אדמין בלבד)
+    זהה לפקודת /findgeo אך עם שם יותר אינטואיטיבי
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    
+    args = context.args
+    if not args:
+        usage_msg = """
+🔍 **חיפוש עיר חדשה**
+
+**שימוש:**
+`/searchcity <שם-עיר>`
+
+**דוגמאות:**
+• `/searchcity Jerusalem`
+• `/searchcity תל אביב`
+• `/searchcity Amsterdam`
+
+💡 **טיפ:** מומלץ לחפש בשם באנגלית לתוצאות טובות יותר.
+
+🌍 להצגת רשימת ערים נפוצות: `/cities`
+        """
+        await update.message.reply_text(usage_msg, parse_mode='Markdown')
+        return
+    
+    query = ' '.join(args).strip()
+    results = search_geonames(query, max_results=8)
+    
+    if not results:
+        # לינק לחיפוש ידני
+        from urllib.parse import quote
+        url = f"https://www.geonames.org/search.html?q={quote(query)}"
+        no_results_msg = f"""
+❌ **לא נמצאו תוצאות עבור:** "{query}"
+
+אפשר לנסות:
+• 🌍 לבחור מרשימת ערים נפוצות: `/cities`
+• 🔍 לחפש ידנית ב-GeoNames: [לחץ כאן]({url})
+• 📝 לנסות שם אחר או באנגלית
+
+לאחר מציאת מזהה ב-GeoNames:
+`/setgeo <ID> [שם-עיר]`
+        """
+        await update.message.reply_text(no_results_msg, parse_mode='Markdown', disable_web_page_preview=True)
+        return
+    
+    chat_id = str(update.effective_chat.id)
+    _search_cache_by_chat[chat_id] = {}
+    keyboard = []
+    
+    for r in results:
+        name = r.get('name') or ''
+        country = r.get('countryName') or ''
+        admin1 = r.get('adminName1') or ''
+        gid = r.get('geonameId') or ''
+        # עיצוב כפתור מסודר יותר בעברית
+        location_parts = [name]
+        if admin1:
+            location_parts.append(admin1)
+        location_parts.append(country)
+        display = f"📍 {', '.join(location_parts)}"
+        _search_cache_by_chat[chat_id][str(gid)] = f"{name}{' - ' + admin1 if admin1 else ''}"
+        keyboard.append([InlineKeyboardButton(display, callback_data=f"setgeo:{gid}")])
+    
+    await update.message.reply_text(
+        "🌍 **בחר מיקום מתוצאות החיפוש:**\n\nלחץ על העיר הרצויה להגדרתה.",
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    מטפל בלחיצות על כפתורי המקלדת בעברית
+    """
+    text = update.message.text.strip()
+    
+    # מיפוי כפתורים לפונקציות
+    button_mapping = {
+        "⏰ זמני שבת": cmd_times,
+        "📊 סטטוס": cmd_status,
+        "❓ עזרה": cmd_help,
+        "🔒 נעילה": cmd_lock,
+        "🔓 פתיחה": cmd_unlock,
+        "⚙️ הגדרות": cmd_settings,
+        "📚 עזרה למנהלים": cmd_admin_help,
+        "🌍 בחירת עיר": cmd_cities,
+        "🔍 חיפוש עיר": lambda u, c: u.message.reply_text(
+            "🔍 **חיפוש עיר**\n\n"
+            "לחיפוש עיר חדשה: `/searchcity <שם-עיר>`\n\n"
+            "**דוגמאות:**\n"
+            "• `/searchcity ירושלים`\n"
+            "• `/searchcity Jerusalem`\n"
+            "• `/searchcity חיפה`",
+            parse_mode='Markdown'
+        ),
+        "🛠️ הגדרות מתקדמות": lambda u, c: u.message.reply_text(
+            "🛠️ **הגדרות מתקדמות**\n\n"
+            "**הגדרת מיקום ידנית:**\n"
+            "• `/setgeo <GEONAME_ID> [שם-עיר]`\n"
+            "• `/findgeo <שם-עיר>`\n\n"
+            "**הגדרת זמנים:**\n"
+            "• `/setoffsets <דקות-נרות> [דקות-הבדלה]`\n\n"
+            "**הגדרת הודעות:**\n"
+            "• `/setmessages <הודעת-נעילה> || <הודעת-פתיחה>`",
+            parse_mode='Markdown'
+        ),
+    }
+    
+    # חיפוש הפונקציה המתאימה
+    handler_func = button_mapping.get(text)
+    if handler_func:
+        await handler_func(update, context)
 
 
 async def main():
@@ -769,10 +1161,12 @@ async def main():
 
         # רישום handlers לפקודות
         application.add_handler(CommandHandler("start", cmd_start))
-        application.add_handler(CommandHandler("menu", cmd_menu))
         application.add_handler(CommandHandler("times", cmd_times))
         application.add_handler(CommandHandler("status", cmd_status))
         application.add_handler(CommandHandler("settings", cmd_settings))
+        application.add_handler(CommandHandler("cities", cmd_cities))
+        application.add_handler(CommandHandler("setcity", cmd_setcity))
+        application.add_handler(CommandHandler("searchcity", cmd_searchcity))
         application.add_handler(CommandHandler("setgeo", cmd_setgeo))
         application.add_handler(CommandHandler("setoffsets", cmd_setoffsets))
         application.add_handler(CommandHandler("setmessages", cmd_setmessages))
@@ -782,6 +1176,14 @@ async def main():
         application.add_handler(CommandHandler("help", cmd_help))
         application.add_handler(CommandHandler("admin_help", cmd_admin_help))
         application.add_handler(CallbackQueryHandler(cb_setgeo_from_inline, pattern=r"^setgeo:\d+$"))
+        
+        # רישום handler לכפתורי מקלדת בעברית
+        from telegram.ext import MessageHandler, filters
+        application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_keyboard_button
+        ))
+        
         # רישום error handler גלובלי
         application.add_error_handler(error_handler)
         
@@ -792,7 +1194,6 @@ async def main():
         # רישום רשימת הפקודות בטלגרם (כדי שיופיעו בתפריט /)
         await application.bot.set_my_commands([
             BotCommand("start", "ברוכים הבאים ומידע"),
-            BotCommand("menu", "הצגת כפתורי הפקודות"),
             BotCommand("times", "זמני השבת הקרובה"),
             BotCommand("status", "סטטוס ותזמונים"),
             BotCommand("help", "עזרה"),
@@ -800,10 +1201,13 @@ async def main():
             BotCommand("unlock", "פתיחה (אדמין)"),
             BotCommand("settings", "הגדרות (אדמין)"),
             BotCommand("admin_help", "עזרה לאדמין"),
+            BotCommand("cities", "רשימת ערים נפוצות (אדמין)"),
+            BotCommand("setcity", "בחירת עיר (אדמין)"),
+            BotCommand("searchcity", "חיפוש עיר חדשה (אדמין)"),
             BotCommand("setgeo", "הגדרת מיקום (אדמין)"),
-            BotCommand("setoffsets", "עדכון הדלקה/הבדלה (אדמין)"),
+            BotCommand("setoffsets", "עדכון זמנים (אדמין)"),
             BotCommand("setmessages", "עדכון הודעות (אדמין)"),
-            BotCommand("findgeo", "חיפוש מיקום לפי שם (אדמין)"),
+            BotCommand("findgeo", "חיפוש מיקום (אדמין)"),
         ])
         
         # התחלת הסקדיולר
