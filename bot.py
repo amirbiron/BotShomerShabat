@@ -30,20 +30,35 @@ STORAGE_FILE = 'groups.json'
 _storage_cache: dict[str, dict] = {}
 _search_cache_by_chat: dict[str, dict[str, str]] = {}
 
-# רשימת ערים נפוצות עם מזהי GeoName
+# רשימת ערים נפוצות בישראל עם מזהי GeoName
 POPULAR_CITIES = {
-    "ירושלים": {"id": "281184", "name": "ירושלים, ישראל"},
-    "תל אביב": {"id": "293397", "name": "תל אביב, ישראל"},
-    "חיפה": {"id": "294801", "name": "חיפה, ישראל"},
-    "באר שבע": {"id": "295530", "name": "באר שבע, ישראל"},
-    "פתח תקווה": {"id": "293322", "name": "פתח תקווה, ישראל"},
-    "נתניה": {"id": "293619", "name": "נתניה, ישראל"},
-    "אשדוד": {"id": "295629", "name": "אשדוד, ישראל"},
-    "ניו יורק": {"id": "5128581", "name": "ניו יורק, ארה\"ב"},
-    "לוס אנג'לס": {"id": "5368361", "name": "לוס אנג'לס, ארה\"ב"},
-    "לונדון": {"id": "2643743", "name": "לונדון, בריטניה"},
-    "פריז": {"id": "2988507", "name": "פריז, צרפת"},
-    "מיאמי": {"id": "4164138", "name": "מיאמי, ארה\"ב"},
+    # מרכז
+    "ירושלים": {"id": "281184", "name": "ירושלים"},
+    "תל אביב": {"id": "293397", "name": "תל אביב - יפו"},
+    "פתח תקווה": {"id": "293322", "name": "פתח תקווה"},
+    "רמת גן": {"id": "293807", "name": "רמת גן"},
+    "בני ברק": {"id": "295620", "name": "בני ברק"},
+    "חולון": {"id": "295629", "name": "חולון"},
+    "ראשון לציון": {"id": "293788", "name": "ראשון לציון"},
+    "רחובות": {"id": "293703", "name": "רחובות"},
+    # צפון
+    "חיפה": {"id": "294801", "name": "חיפה"},
+    "נצרת": {"id": "294098", "name": "נצרת"},
+    "טבריה": {"id": "293100", "name": "טבריה"},
+    "צפת": {"id": "293082", "name": "צפת"},
+    "עכו": {"id": "295721", "name": "עכו"},
+    "קריית שמונה": {"id": "294117", "name": "קריית שמונה"},
+    # שרון והשפלה
+    "נתניה": {"id": "293619", "name": "נתניה"},
+    "הרצליה": {"id": "294071", "name": "הרצליה"},
+    "כפר סבא": {"id": "294946", "name": "כפר סבא"},
+    "רעננה": {"id": "293783", "name": "רעננה"},
+    "מודיעין": {"id": "294751", "name": "מודיעין-מכבים-רעות"},
+    # דרום
+    "באר שבע": {"id": "295530", "name": "באר שבע"},
+    "אשדוד": {"id": "295629", "name": "אשדוד"},
+    "אשקלון": {"id": "295277", "name": "אשקלון"},
+    "אילת": {"id": "295279", "name": "אילת"},
 }
 
 def _load_storage():
@@ -109,19 +124,17 @@ def build_command_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     בונה מקשי מקלדת עם כל הפקודות. מציג פקודות אדמין רק לאדמינים.
     """
     user_rows = [
-        [KeyboardButton("/times"), KeyboardButton("/status")],
-        [KeyboardButton("/help"), KeyboardButton("/menu")],
+        [KeyboardButton("⏰ זמני שבת"), KeyboardButton("📊 סטטוס")],
+        [KeyboardButton("❓ עזרה")],
     ]
 
     admin_rows = []
     if is_admin:
         admin_rows = [
-            [KeyboardButton("/lock"), KeyboardButton("/unlock")],
-            [KeyboardButton("/settings"), KeyboardButton("/admin_help")],
-            [KeyboardButton("/cities"), KeyboardButton("/setcity")],
-            [KeyboardButton("/searchcity"), KeyboardButton("/findgeo")],
-            [KeyboardButton("/setgeo"), KeyboardButton("/setoffsets")],
-            [KeyboardButton("/setmessages")],
+            [KeyboardButton("🔒 נעילה"), KeyboardButton("🔓 פתיחה")],
+            [KeyboardButton("⚙️ הגדרות"), KeyboardButton("📚 עזרה למנהלים")],
+            [KeyboardButton("🌍 רשימת ערים"), KeyboardButton("📍 בחירת עיר")],
+            [KeyboardButton("🔍 חיפוש עיר"), KeyboardButton("🛠️ הגדרות מתקדמות")],
         ]
 
     return ReplyKeyboardMarkup(
@@ -555,17 +568,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         help_msg,
         parse_mode='Markdown',
-        reply_markup=build_command_keyboard(is_admin_user)
-    )
-
-
-async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """
-    פקודת /menu - הצגת מקשי הפקודות
-    """
-    is_admin_user = await is_admin(update, context)
-    await update.message.reply_text(
-        "📲 תפריט הפקודות",
         reply_markup=build_command_keyboard(is_admin_user)
     )
 
@@ -1017,6 +1019,59 @@ async def cmd_searchcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     )
 
 
+async def handle_keyboard_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    מטפל בלחיצות על כפתורי המקלדת בעברית
+    """
+    text = update.message.text.strip()
+    
+    # מיפוי כפתורים לפונקציות
+    button_mapping = {
+        "⏰ זמני שבת": cmd_times,
+        "📊 סטטוס": cmd_status,
+        "❓ עזרה": cmd_help,
+        "🔒 נעילה": cmd_lock,
+        "🔓 פתיחה": cmd_unlock,
+        "⚙️ הגדרות": cmd_settings,
+        "📚 עזרה למנהלים": cmd_admin_help,
+        "🌍 רשימת ערים": cmd_cities,
+        "📍 בחירת עיר": lambda u, c: u.message.reply_text(
+            "💡 **בחירת עיר**\n\n"
+            "להצגת רשימת ערים: `/cities`\n"
+            "לבחירת עיר: `/setcity <שם-עיר>` או `/setcity <מספר>`\n\n"
+            "**דוגמאות:**\n"
+            "• `/setcity ירושלים`\n"
+            "• `/setcity 1`",
+            parse_mode='Markdown'
+        ),
+        "🔍 חיפוש עיר": lambda u, c: u.message.reply_text(
+            "🔍 **חיפוש עיר**\n\n"
+            "לחיפוש עיר חדשה: `/searchcity <שם-עיר>`\n\n"
+            "**דוגמאות:**\n"
+            "• `/searchcity ירושלים`\n"
+            "• `/searchcity Jerusalem`\n"
+            "• `/searchcity חיפה`",
+            parse_mode='Markdown'
+        ),
+        "🛠️ הגדרות מתקדמות": lambda u, c: u.message.reply_text(
+            "🛠️ **הגדרות מתקדמות**\n\n"
+            "**הגדרת מיקום ידנית:**\n"
+            "• `/setgeo <GEONAME_ID> [שם-עיר]`\n"
+            "• `/findgeo <שם-עיר>`\n\n"
+            "**הגדרת זמנים:**\n"
+            "• `/setoffsets <דקות-נרות> [דקות-הבדלה]`\n\n"
+            "**הגדרת הודעות:**\n"
+            "• `/setmessages <הודעת-נעילה> || <הודעת-פתיחה>`",
+            parse_mode='Markdown'
+        ),
+    }
+    
+    # חיפוש הפונקציה המתאימה
+    handler_func = button_mapping.get(text)
+    if handler_func:
+        await handler_func(update, context)
+
+
 async def main():
     """
     פונקציה ראשית - מפעילה את הבוט
@@ -1034,7 +1089,6 @@ async def main():
 
         # רישום handlers לפקודות
         application.add_handler(CommandHandler("start", cmd_start))
-        application.add_handler(CommandHandler("menu", cmd_menu))
         application.add_handler(CommandHandler("times", cmd_times))
         application.add_handler(CommandHandler("status", cmd_status))
         application.add_handler(CommandHandler("settings", cmd_settings))
@@ -1050,6 +1104,14 @@ async def main():
         application.add_handler(CommandHandler("help", cmd_help))
         application.add_handler(CommandHandler("admin_help", cmd_admin_help))
         application.add_handler(CallbackQueryHandler(cb_setgeo_from_inline, pattern=r"^setgeo:\d+$"))
+        
+        # רישום handler לכפתורי מקלדת בעברית
+        from telegram.ext import MessageHandler, filters
+        application.add_handler(MessageHandler(
+            filters.TEXT & ~filters.COMMAND,
+            handle_keyboard_button
+        ))
+        
         # רישום error handler גלובלי
         application.add_error_handler(error_handler)
         
@@ -1060,7 +1122,6 @@ async def main():
         # רישום רשימת הפקודות בטלגרם (כדי שיופיעו בתפריט /)
         await application.bot.set_my_commands([
             BotCommand("start", "ברוכים הבאים ומידע"),
-            BotCommand("menu", "הצגת כפתורי הפקודות"),
             BotCommand("times", "זמני השבת הקרובה"),
             BotCommand("status", "סטטוס ותזמונים"),
             BotCommand("help", "עזרה"),
@@ -1069,12 +1130,12 @@ async def main():
             BotCommand("settings", "הגדרות (אדמין)"),
             BotCommand("admin_help", "עזרה לאדמין"),
             BotCommand("cities", "רשימת ערים נפוצות (אדמין)"),
-            BotCommand("setcity", "בחירת עיר מהרשימה (אדמין)"),
+            BotCommand("setcity", "בחירת עיר (אדמין)"),
             BotCommand("searchcity", "חיפוש עיר חדשה (אדמין)"),
             BotCommand("setgeo", "הגדרת מיקום (אדמין)"),
-            BotCommand("setoffsets", "עדכון הדלקה/הבדלה (אדמין)"),
+            BotCommand("setoffsets", "עדכון זמנים (אדמין)"),
             BotCommand("setmessages", "עדכון הודעות (אדמין)"),
-            BotCommand("findgeo", "חיפוש מיקום לפי שם (אדמין)"),
+            BotCommand("findgeo", "חיפוש מיקום (אדמין)"),
         ])
         
         # התחלת הסקדיולר
