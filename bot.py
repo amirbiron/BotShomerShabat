@@ -5,8 +5,8 @@
 import asyncio
 import logging
 from datetime import datetime
-from telegram import Update, Bot, ChatPermissions
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, Bot, ChatPermissions, InlineKeyboardButton, InlineKeyboardMarkup
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from telegram.error import TelegramError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
@@ -33,6 +33,24 @@ async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> N
     מטפל בשגיאות גלובליות כדי למנוע ספאמים בלוגים ללא error handlers
     """
     logger.exception("Unhandled exception while processing an update", exc_info=context.error)
+
+
+def build_main_menu(is_user_admin: bool) -> InlineKeyboardMarkup:
+    """בונה תפריט כפתורים ראשי לפקודות הבוט."""
+    rows = [
+        [
+            InlineKeyboardButton(text="🕯️ זמני שבת", callback_data="cmd:times"),
+            InlineKeyboardButton(text="🤖 סטטוס", callback_data="cmd:status"),
+            InlineKeyboardButton(text="ℹ️ עזרה", callback_data="cmd:help"),
+        ]
+    ]
+    if is_user_admin:
+        rows.append([
+            InlineKeyboardButton(text="🔒 נעילה", callback_data="cmd:lock"),
+            InlineKeyboardButton(text="🔓 פתיחה", callback_data="cmd:unlock"),
+            InlineKeyboardButton(text="⚙️ הגדרות", callback_data="cmd:settings"),
+        ])
+    return InlineKeyboardMarkup(rows)
 
 
 async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
@@ -153,19 +171,26 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ✨ הבוט פועל אוטומטית - אין צורך לעשות דבר!
     """
-    await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+    message = update.effective_message
+    is_user_admin = await is_admin(update, context)
+    await message.reply_text(
+        welcome_msg,
+        parse_mode='Markdown',
+        reply_markup=build_main_menu(is_user_admin)
+    )
 
 
 async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /times - הצגת זמני שבת
     """
-    await update.message.reply_text("🔍 מושך זמני שבת...")
+    message = update.effective_message
+    await message.reply_text("🔍 מושך זמני שבת...")
     
     times = get_next_shabbat_times()
     
     if not times:
-        await update.message.reply_text("❌ לא הצלחתי למשוך זמני שבת. נסה שוב מאוחר יותר.")
+        await message.reply_text("❌ לא הצלחתי למשוך זמני שבת. נסה שוב מאוחר יותר.")
         return
     
     candle = times['candle_lighting'].strftime('%d/%m/%Y %H:%M')
@@ -180,7 +205,7 @@ async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 📍 מיקום: {config.LOCATION}
     """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await message.reply_text(msg, parse_mode='Markdown')
 
 
 async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -212,15 +237,17 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     msg += f"\n📍 מיקום: {config.LOCATION}"
     
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    message = update.effective_message
+    await message.reply_text(msg, parse_mode='Markdown')
 
 
 async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /settings - הצגת הגדרות (אדמין בלבד)
     """
+    message = update.effective_message
     if not await is_admin(update, context):
-        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        await message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
     msg = f"""
@@ -237,33 +264,35 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • נעילה: {config.LOCK_MESSAGE}
 • פתיחה: {config.UNLOCK_MESSAGE}
     """
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await message.reply_text(msg, parse_mode='Markdown')
 
 
 async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /lock - נעילה ידנית (אדמין בלבד)
     """
+    message = update.effective_message
     if not await is_admin(update, context):
-        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        await message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
-    await update.message.reply_text("🔒 נועל את הקבוצה...")
+    await message.reply_text("🔒 נועל את הקבוצה...")
     await lock_group(context)
-    await update.message.reply_text("✅ הקבוצה ננעלה!")
+    await message.reply_text("✅ הקבוצה ננעלה!")
 
 
 async def cmd_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /unlock - פתיחה ידנית (אדמין בלבד)
     """
+    message = update.effective_message
     if not await is_admin(update, context):
-        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        await message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
-    await update.message.reply_text("🔓 פותח את הקבוצה...")
+    await message.reply_text("🔓 פותח את הקבוצה...")
     await unlock_group(context)
-    await update.message.reply_text("✅ הקבוצה נפתחה!")
+    await message.reply_text("✅ הקבוצה נפתחה!")
 
 
 async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -299,7 +328,39 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ✨ נתקלת בבעיה? פנה למפתח הבוט.
     """
-    await update.message.reply_text(help_msg, parse_mode='Markdown')
+    message = update.effective_message
+    is_user_admin = await is_admin(update, context)
+    await message.reply_text(
+        help_msg,
+        parse_mode='Markdown',
+        reply_markup=build_main_menu(is_user_admin)
+    )
+
+
+async def on_button(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """מטפל בלחיצות על כפתורים ומנתב לפקודות המתאימות."""
+    query = update.callback_query
+    if not query or not query.data:
+        return
+    await query.answer()
+
+    data = query.data
+    if not data.startswith("cmd:"):
+        return
+
+    cmd = data.split(":", 1)[1]
+    handlers = {
+        "start": cmd_start,
+        "times": cmd_times,
+        "status": cmd_status,
+        "help": cmd_help,
+        "lock": cmd_lock,
+        "unlock": cmd_unlock,
+        "settings": cmd_settings,
+    }
+    handler = handlers.get(cmd)
+    if handler:
+        await handler(update, context)
 
 
 def schedule_shabbat():
@@ -376,6 +437,8 @@ async def main():
         application.add_handler(CommandHandler("lock", cmd_lock))
         application.add_handler(CommandHandler("unlock", cmd_unlock))
         application.add_handler(CommandHandler("help", cmd_help))
+        # כפתורי תפריט (callback queries)
+        application.add_handler(CallbackQueryHandler(on_button))
         # רישום error handler גלובלי
         application.add_error_handler(error_handler)
         
