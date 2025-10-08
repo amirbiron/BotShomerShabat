@@ -5,7 +5,7 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from telegram import Update, Bot, ChatPermissions
+from telegram import Update, Bot, ChatPermissions, ReplyKeyboardMarkup, KeyboardButton, BotCommand
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import TelegramError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -76,6 +76,33 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
     except:
         return False
 
+
+def build_command_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
+    """
+    בונה מקשי מקלדת עם כל הפקודות. מציג פקודות אדמין רק לאדמינים.
+    """
+    user_rows = [
+        [KeyboardButton("/times"), KeyboardButton("/status")],
+        [KeyboardButton("/help"), KeyboardButton("/menu")],
+    ]
+
+    admin_rows = []
+    if is_admin:
+        admin_rows = [
+            [KeyboardButton("/lock"), KeyboardButton("/unlock")],
+            [KeyboardButton("/settings"), KeyboardButton("/admin_help")],
+            [KeyboardButton("/setgeo"), KeyboardButton("/setoffsets")],
+            [KeyboardButton("/setmessages")],
+        ]
+
+    return ReplyKeyboardMarkup(
+        keyboard=user_rows + admin_rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        one_time_keyboard=False,
+        selective=True,
+        input_field_placeholder="בחר פקודה…",
+    )
 
 def _to_int_chat_id(chat_id: str | int) -> int:
     try:
@@ -221,7 +248,12 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ✨ הבוט פועל אוטומטית!
 אין צורך להפעיל ידנית – רק להגדיר מיקום פעם אחת, והכול יתבצע מעצמו בכל שבוע 🙌
     """
-    await update.message.reply_text(welcome_msg, parse_mode='Markdown')
+    is_admin_user = await is_admin(update, context)
+    await update.message.reply_text(
+        welcome_msg,
+        parse_mode='Markdown',
+        reply_markup=build_command_keyboard(is_admin_user)
+    )
 
 
 async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -477,7 +509,23 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ✨ נתקלת בבעיה? פנה למפתח הבוט: @moominAmir
     """
-    await update.message.reply_text(help_msg, parse_mode='Markdown')
+    is_admin_user = await is_admin(update, context)
+    await update.message.reply_text(
+        help_msg,
+        parse_mode='Markdown',
+        reply_markup=build_command_keyboard(is_admin_user)
+    )
+
+
+async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /menu - הצגת מקשי הפקודות
+    """
+    is_admin_user = await is_admin(update, context)
+    await update.message.reply_text(
+        "📲 תפריט הפקודות",
+        reply_markup=build_command_keyboard(is_admin_user)
+    )
 
 
 async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -599,6 +647,7 @@ async def main():
 
         # רישום handlers לפקודות
         application.add_handler(CommandHandler("start", cmd_start))
+        application.add_handler(CommandHandler("menu", cmd_menu))
         application.add_handler(CommandHandler("times", cmd_times))
         application.add_handler(CommandHandler("status", cmd_status))
         application.add_handler(CommandHandler("settings", cmd_settings))
@@ -615,6 +664,22 @@ async def main():
         # בדיקת חיבור לבוט
         me = await application.bot.get_me()
         logger.info(f"✅ מחובר כ: @{me.username}")
+
+        # רישום רשימת הפקודות בטלגרם (כדי שיופיעו בתפריט /)
+        await application.bot.set_my_commands([
+            BotCommand("start", "ברוכים הבאים ומידע"),
+            BotCommand("menu", "הצגת כפתורי הפקודות"),
+            BotCommand("times", "זמני השבת הקרובה"),
+            BotCommand("status", "סטטוס ותזמונים"),
+            BotCommand("help", "עזרה"),
+            BotCommand("lock", "נעילה (אדמין)"),
+            BotCommand("unlock", "פתיחה (אדמין)"),
+            BotCommand("settings", "הגדרות (אדמין)"),
+            BotCommand("admin_help", "עזרה לאדמין"),
+            BotCommand("setgeo", "הגדרת מיקום (אדמין)"),
+            BotCommand("setoffsets", "עדכון הדלקה/הבדלה (אדמין)"),
+            BotCommand("setmessages", "עדכון הודעות (אדמין)"),
+        ])
         
         # התחלת הסקדיולר
         scheduler.start()
