@@ -192,22 +192,34 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     פקודת /start - הודעת ברוכים הבאים
     """
     welcome_msg = """
-🕯️ **ברוך הבא לבוט "שומר שבת"!**
+🕯️ ברוך הבא לבוט "שומר שבת"!
 
-אני בוט אוטומטי שנועל את הקבוצה בכניסת שבת ופותח אותה בצאת השבת.
+שלום 👋
+אני בוט אוטומטי שנועל את הקבוצה בכניסת שבת ופותח אותה בצאת השבת – בדיוק בזמן, לפי המיקום שהוגדר.
 
-📋 **פקודות זמינות:**
-/times - הצגת זמני השבת הקרובה
-/status - סטטוס הבוט והתזמונים
-/help - עזרה ומידע
+---
 
-🔐 **פקודות אדמין בלבד:**
-/lock - נעילה ידנית של הקבוצה
-/unlock - פתיחה ידנית של הקבוצה
-/settings - הצגת ההגדרות
-⚙️ אדמין: /setgeo /setoffsets /setmessages
+📋 פקודות כלליות
+/times – הצגת זמני השבת הקרובה
+/status – מצב הבוט והתזמונים הנוכחיים
+/help – עזרה ומידע למשתמשים
 
-✨ הבוט פועל אוטומטית - אין צורך לעשות דבר!
+---
+
+🔐 פקודות אדמין
+(זמינות רק למנהלי הקבוצה)
+/lock – נעילה ידנית של הקבוצה
+/unlock – פתיחה ידנית של הקבוצה
+/settings – הצגת ההגדרות הקיימות
+/setgeo <GEONAME\_ID> [שם-מיקום] – הגדרת מיקום הקבוצה (חובה למיקום מדויק)
+/setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN] – הגדרת דקות לפני הדלקת נרות ואחרי הבדלה
+/setmessages <LOCK> || <UNLOCK> – הודעות נעילה ופתיחה מותאמות אישית
+/admin\_help – עזרה והסברים מפורטים לפקודות אדמין
+
+---
+
+✨ הבוט פועל אוטומטית!
+אין צורך להפעיל ידנית – רק להגדיר מיקום פעם אחת, והכול יתבצע מעצמו בכל שבוע 🙌
     """
     await update.message.reply_text(welcome_msg, parse_mode='Markdown')
 
@@ -292,8 +304,6 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
-    chat_id = update.effective_chat.id
-    g = _get_group_config(chat_id) or config.GROUPS[0]
     chat_id = update.effective_chat.id
     g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
     if not g:
@@ -407,7 +417,10 @@ async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     chat_id = update.effective_chat.id
-    g = _get_group_config(chat_id) or config.GROUPS[0]
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. הגדירו תחילה מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
     await update.message.reply_text("🔒 נועל את הקבוצה...")
     await lock_group_for(g['chat_id'], g['lock_message'], context)
     await update.message.reply_text("✅ הקבוצה ננעלה!")
@@ -422,7 +435,10 @@ async def cmd_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     
     chat_id = update.effective_chat.id
-    g = _get_group_config(chat_id) or config.GROUPS[0]
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. הגדירו תחילה מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
     await update.message.reply_text("🔓 פותח את הקבוצה...")
     await unlock_group_for(g['chat_id'], g['unlock_message'], context)
     await update.message.reply_text("✅ הקבוצה נפתחה!")
@@ -433,35 +449,83 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     פקודת /help - עזרה
     """
     help_msg = """
-🕯️ **עזרה - בוט שומר שבת**
+🕯️ עזרה - בוט שומר שבת
 
-**מה הבוט עושה?**
+מה הבוט עושה?
 הבוט נועל את הקבוצה אוטומטית בזמן הדלקת נרות ופותח אותה בזמן הבדלה.
 
-📋 **פקודות כלליות:**
+📋 פקודות כלליות:
 • /times - הצגת זמני השבת הקרובה
 • /status - סטטוס הבוט והתזמונים הקרובים
 • /help - הודעת עזרה זו
 
-🔐 **פקודות אדמין:**
+🔐 פקודות אדמין:
 • /lock - נעילה ידנית של הקבוצה
 • /unlock - פתיחה ידנית של הקבוצה
 • /settings - הצגת הגדרות הבוט
 
-❓ **שאלות נפוצות:**
+❓ שאלות נפוצות:
 
-**איך הבוט יודע את זמני השבת?**
+איך הבוט יודע את זמני השבת?
 הבוט משתמש ב-Hebcal API ומושך את הזמנים לפי המיקום שהוגדר.
 
-**מה אם זמני השבת לא מדויקים?**
+מה אם זמני השבת לא מדויקים?
 ניתן לשנות את ההגדרות (מיקום, דקות לפני/אחרי) במשתני הסביבה.
 
-**האם הבוט פועל גם בחגים?**
+האם הבוט פועל גם בחגים?
 כרגע הבוט פועל רק בשבת. תמיכה בחגים תתווסף בעתיד.
 
-✨ נתקלת בבעיה? פנה למפתח הבוט.
+✨ נתקלת בבעיה? פנה למפתח הבוט: @moominAmir
     """
     await update.message.reply_text(help_msg, parse_mode='Markdown')
+
+
+async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = """
+פקודות בוט שומר שבת
+
+שלום 👋
+הבוט נועד לעזור לקבוצות לשמור שבת בצורה נוחה – עם זמני נעילה ופתיחה אוטומטיים, הודעות מותאמות ועוד.
+להלן הפקודות הזמינות לאדמינים:
+
+---
+
+🗺️ /setgeo <GEONAME\_ID> [שם-מיקום]
+הגדרת מיקום הקבוצה לפי GeoNames (חובה).
+אפשר לציין גם שם תצוגה (אופציונלי).
+לאחר ההגדרה, הבוט יעדכן את זמני השבת לפי המיקום החדש.
+נשמר בקובץ ההגדרות של הקבוצה.
+
+---
+
+🕯️ /setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN]
+הגדרת זמני הדלקת נרות והבדלה.
+
+<CANDLE\_MIN> – כמה דקות לפני שקיעה מדליקים נרות.
+
+[HAVDALAH\_MIN] – כמה דקות אחרי שקיעה עושים הבדלה (אם לא מצוין, נשמר הערך הקודם).
+ברירת מחדל: 0 = שלושה כוכבים.
+הבוט יעדכן את התזמון של ההודעות בהתאם.
+
+---
+
+🔒 /setmessages <LOCK> || <UNLOCK>
+הגדרת הודעות נעילה ופתיחה מותאמות אישית.
+ההודעות נפרדות בעזרת ||.
+דוגמה:
+/setmessages שבת שלום 🌙 || שבוע טוב 🌅
+
+---
+
+ℹ️ הערות
+
+פקודות אלו זמינות רק לאדמינים של הקבוצה.
+
+ההגדרות נשמרות פר-קבוצה ונשארות גם אחרי אתחול.
+
+---
+    """
+    await update.message.reply_text(msg, parse_mode='Markdown')
 
 
 def schedule_shabbat():
@@ -554,6 +618,7 @@ async def main():
         application.add_handler(CommandHandler("lock", cmd_lock))
         application.add_handler(CommandHandler("unlock", cmd_unlock))
         application.add_handler(CommandHandler("help", cmd_help))
+        application.add_handler(CommandHandler("admin_help", cmd_admin_help))
         # רישום error handler גלובלי
         application.add_error_handler(error_handler)
         
