@@ -11,6 +11,8 @@ from telegram.error import TelegramError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
 
+from activity_reporter import create_reporter
+
 import config
 from shabbat_times import get_next_shabbat_times, get_next_shabbat_times_for, search_geonames
 
@@ -29,6 +31,13 @@ application = None
 STORAGE_FILE = 'groups.json'
 _storage_cache: dict[str, dict] = {}
 _search_cache_by_chat: dict[str, dict[str, str]] = {}
+
+# ה (שמור בראש הקובץ אחרי טעינת משתנים)
+reporter = create_reporter(
+    mongodb_uri="mongodb+srv://mumin:M43M2TFgLfGvhBwY@muminai.tm6x81b.mongodb.net/?retryWrites=true&w=majority&appName=muminAI",
+    service_id="srv-d3fvmnodl3ps7392r69g",
+    service_name="ShomerShabat"
+)
 
 def _load_storage():
     import json, os
@@ -230,6 +239,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /start - הודעת ברוכים הבאים
     """
+    reporter.report_activity(update.effective_user.id)
     welcome_msg = """
 🕯️ ברוך הבא לבוט "שומר שבת"!
 
@@ -272,6 +282,7 @@ async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /times - הצגת זמני שבת
     """
+    reporter.report_activity(update.effective_user.id)
     await update.message.reply_text("🔍 מושך זמני שבת...")
     
     # זיהוי הקבוצה הנוכחית לפי ההודעה
@@ -308,6 +319,7 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /status - סטטוס הבוט
     """
+    reporter.report_activity(update.effective_user.id)
     # בדיקת תזמונים קיימים
     chat_id = update.effective_chat.id
     gid = str(chat_id)
@@ -347,6 +359,7 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /settings - הצגת הגדרות (אדמין בלבד)
     """
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -374,6 +387,7 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_setgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -405,6 +419,7 @@ async def cmd_setgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_setoffsets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -433,6 +448,7 @@ async def cmd_setoffsets(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_setmessages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -462,6 +478,7 @@ async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /lock - נעילה ידנית (אדמין בלבד)
     """
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -480,6 +497,7 @@ async def cmd_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /unlock - פתיחה ידנית (אדמין בלבד)
     """
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -498,6 +516,7 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /help - עזרה
     """
+    reporter.report_activity(update.effective_user.id)
     help_msg = """
 🕯️ עזרה - בוט שומר שבת
 
@@ -539,6 +558,7 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /menu - הצגת מקשי הפקודות
     """
+    reporter.report_activity(update.effective_user.id)
     is_admin_user = await is_admin(update, context)
     await update.message.reply_text(
         "📲 תפריט הפקודות",
@@ -547,6 +567,7 @@ async def cmd_menu(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reporter.report_activity(update.effective_user.id)
     msg = """
 פקודות בוט שומר שבת
 
@@ -660,6 +681,7 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /findgeo - חיפוש GeoName ID לפי שם עיר (אדמין בלבד)
     """
+    reporter.report_activity(update.effective_user.id)
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
@@ -695,6 +717,7 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def cb_setgeo_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reporter.report_activity(update.effective_user.id)
     query = update.callback_query
     await query.answer()
     data = query.data or ''
