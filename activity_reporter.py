@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 
 class SimpleActivityReporter:
-    def init(self, mongodb_uri, service_id, service_name=None):
+    def __init__(self, mongodb_uri, service_id, service_name=None):
         """
         mongodb_uri: חיבור למונגו (אותו מהבוט המרכזי)
         service_id: מזהה השירות ב-Render
