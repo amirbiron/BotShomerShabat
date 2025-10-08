@@ -31,6 +31,10 @@
 | `/lock` | נעילה ידנית של הקבוצה (לשעת חירום) |
 | `/unlock` | פתיחה ידנית של הקבוצה |
 | `/settings` | הצגת הגדרות הבוט (מיקום, זמנים, הודעות) |
+| `/admin_help` | עזרה והסברים מפורטים לפקודות אדמין |
+| `/setgeo <GEONAME_ID> [שם-מיקום]` | הגדרת מיקום לקבוצה |
+| `/setoffsets <CANDLE_MIN> [HAVDALAH_MIN]` | עדכון דקות הדלקה/הבדלה |
+| `/setmessages <LOCK> || <UNLOCK>` | עדכון הודעות נעילה/פתיחה |
 | `/setgeo <GEONAME_ID> [שם-מיקום]` | הגדרת מיקום לקבוצה הנוכחית |
 | `/setoffsets <CANDLE_MIN> [HAVDALAH_MIN]` | עדכון דקות הדלקה/הבדלה |
 | `/setmessages <LOCK> || <UNLOCK>` | עדכון הודעות נעילה/פתיחה |
