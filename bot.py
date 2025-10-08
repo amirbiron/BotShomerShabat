@@ -5,14 +5,14 @@
 import asyncio
 import logging
 from datetime import datetime, timedelta
-from telegram import Update, Bot, ChatPermissions, ReplyKeyboardMarkup, KeyboardButton, BotCommand
-from telegram.ext import Application, CommandHandler, ContextTypes
+from telegram import Update, Bot, ChatPermissions, ReplyKeyboardMarkup, KeyboardButton, BotCommand, InlineKeyboardMarkup, InlineKeyboardButton
+from telegram.ext import Application, CommandHandler, ContextTypes, CallbackQueryHandler
 from telegram.error import TelegramError
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
 
 import config
-from shabbat_times import get_next_shabbat_times, get_next_shabbat_times_for
+from shabbat_times import get_next_shabbat_times, get_next_shabbat_times_for, search_geonames
 
 # הגדרת logging
 logging.basicConfig(
@@ -28,6 +28,7 @@ scheduler = AsyncIOScheduler()
 application = None
 STORAGE_FILE = 'groups.json'
 _storage_cache: dict[str, dict] = {}
+_search_cache_by_chat: dict[str, dict[str, str]] = {}
 
 def _load_storage():
     import json, os
@@ -101,7 +102,8 @@ def build_command_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         admin_rows = [
             [KeyboardButton("/lock"), KeyboardButton("/unlock")],
             [KeyboardButton("/settings"), KeyboardButton("/admin_help")],
-            [KeyboardButton("/setgeo"), KeyboardButton("/setoffsets")],
+            [KeyboardButton("/setgeo"), KeyboardButton("/findgeo")],
+            [KeyboardButton("/setoffsets")],
             [KeyboardButton("/setmessages")],
         ]
 
@@ -562,6 +564,9 @@ async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ℹ️ שים לב: GeoName ID הוא מספרי בלבד (למשל: 281184 לירושלים)
 
+🔎 /findgeo <שם-עיר>
+חיפוש מזהה GeoName לפי שם עיר והצגת כפתורי בחירה מהירים.
+
 ---
 
 🕯️ /setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN]
@@ -651,6 +656,79 @@ def schedule_shabbat():
         logger.info(f"🔄 רענון שבועי עבור {gid} יתבצע ב: {next_refresh.strftime('%Y-%m-%d %H:%M')}")
 
 
+async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /findgeo - חיפוש GeoName ID לפי שם עיר (אדמין בלבד)
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("שימוש: /findgeo <שם-עיר>\nלדוגמה: /findgeo Jerusalem או /findgeo תל אביב")
+        return
+    query = ' '.join(args).strip()
+    results = search_geonames(query, max_results=8)
+    if not results:
+        # לינק לחיפוש ידני
+        from urllib.parse import quote
+        url = f"https://www.geonames.org/search.html?q={quote(query)}"
+        await update.message.reply_text(
+            f"לא נמצאו תוצאות בחיפוש אוטומטי. אפשר לחפש ידנית כאן:\n{url}\nלאחר שתמצאו מזהה, הגדירו: /setgeo <ID> [שם-מיקום]",
+        )
+        return
+    chat_id = str(update.effective_chat.id)
+    _search_cache_by_chat[chat_id] = {}
+    keyboard = []
+    for r in results:
+        name = r.get('name') or ''
+        country = r.get('countryName') or ''
+        admin1 = r.get('adminName1') or ''
+        gid = r.get('geonameId') or ''
+        display = f"{name}, {country}{' · ' + admin1 if admin1 else ''} — {gid}"
+        _search_cache_by_chat[chat_id][str(gid)] = f"{name}{' - ' + admin1 if admin1 else ''}"
+        keyboard.append([InlineKeyboardButton(display, callback_data=f"setgeo:{gid}")])
+    await update.message.reply_text(
+        "בחרו מיקום מהרשימה:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
+async def cb_setgeo_from_inline(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data or ''
+    if not data.startswith('setgeo:'):
+        return
+    geoname_id = data.split(':', 1)[1].strip()
+    # בדיקת אדמין
+    if not await is_admin(update, context):
+        await query.edit_message_text("⛔ רק אדמינים יכולים להגדיר מיקום.")
+        return
+    chat_id = query.message.chat_id
+    key = str(chat_id)
+    # ברירות מחדל
+    g = _get_group_config(chat_id) or {
+        'chat_id': key,
+        'candle_lighting_offset': config.CANDLE_LIGHTING_OFFSET,
+        'havdalah_offset': config.HAVDALAH_OFFSET,
+        'lock_message': config.LOCK_MESSAGE,
+        'unlock_message': config.UNLOCK_MESSAGE,
+    }
+    # שם מיקום לתצוגה מתוך המטמון (אם קיים)
+    location_name = _search_cache_by_chat.get(key, {}).get(str(geoname_id)) or 'Custom'
+    g.update({'geoname_id': geoname_id, 'location': location_name})
+    _storage_cache[key] = g
+    _save_storage()
+    # ניקוי מקשים אינליין והודעת הצלחה
+    try:
+        await query.edit_message_reply_markup(None)
+    except Exception:
+        pass
+    await context.bot.send_message(chat_id=chat_id, text=f"✅ הוגדר מיקום לקבוצה זו: {location_name} (GeoName: {geoname_id})")
+    schedule_shabbat()
+
+
 async def main():
     """
     פונקציה ראשית - מפעילה את הבוט
@@ -677,8 +755,10 @@ async def main():
         application.add_handler(CommandHandler("setmessages", cmd_setmessages))
         application.add_handler(CommandHandler("lock", cmd_lock))
         application.add_handler(CommandHandler("unlock", cmd_unlock))
+        application.add_handler(CommandHandler("findgeo", cmd_findgeo))
         application.add_handler(CommandHandler("help", cmd_help))
         application.add_handler(CommandHandler("admin_help", cmd_admin_help))
+        application.add_handler(CallbackQueryHandler(cb_setgeo_from_inline, pattern=r"^setgeo:\d+$"))
         # רישום error handler גלובלי
         application.add_error_handler(error_handler)
         
@@ -700,6 +780,7 @@ async def main():
             BotCommand("setgeo", "הגדרת מיקום (אדמין)"),
             BotCommand("setoffsets", "עדכון הדלקה/הבדלה (אדמין)"),
             BotCommand("setmessages", "עדכון הודעות (אדמין)"),
+            BotCommand("findgeo", "חיפוש מיקום לפי שם (אדמין)"),
         ])
         
         # התחלת הסקדיולר

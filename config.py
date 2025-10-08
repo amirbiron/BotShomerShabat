@@ -24,6 +24,9 @@ HAVDALAH_OFFSET = int(os.getenv('HAVDALAH_OFFSET', '0'))  # 0 = חישוב או�
 LOCK_MESSAGE = os.getenv('LOCK_MESSAGE', '🕯️ שבת שלום! הקבוצה ננעלת עד צאת השבת.')
 UNLOCK_MESSAGE = os.getenv('UNLOCK_MESSAGE', '✨ שבוע טוב! הקבוצה נפתחה.')
 
+# חיפוש GeoNames (לא חובה, לצורך /findgeo)
+GEONAMES_USERNAME = os.getenv('GEONAMES_USERNAME')
+
 # תמיכה בריבוי קבוצות/מיקומים דרך JSON במשתנה סביבה GROUPS_CONFIG
 # פורמט צפוי (דוגמה):
 # [
