@@ -514,16 +514,6 @@ async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 ההודעות נפרדות בעזרת ||.
 דוגמה:
 /setmessages שבת שלום 🌙 || שבוע טוב 🌅
-
----
-
-ℹ️ הערות
-
-פקודות אלו זמינות רק לאדמינים של הקבוצה.
-
-ההגדרות נשמרות פר-קבוצה ונשארות גם אחרי אתחול.
-
----
     """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
