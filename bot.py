@@ -697,7 +697,20 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
     args = context.args
     if not args:
-        await update.message.reply_text("שימוש: /findgeo <שם-עיר>\nלדוגמה: /findgeo Jerusalem או /findgeo תל אביב")
+        usage_msg = """
+🔍 **חיפוש עיר לפי שם**
+
+**שימוש:**
+`/findgeo <שם-עיר>`
+
+**דוגמאות:**
+• `/findgeo Jerusalem`
+• `/findgeo תל אביב`
+• `/findgeo Amsterdam`
+
+💡 **טיפ:** מומלץ לחפש בשם באנגלית לתוצאות טובות יותר.
+        """
+        await update.message.reply_text(usage_msg, parse_mode='Markdown')
         return
     query = ' '.join(args).strip()
     results = search_geonames(query, max_results=8)
@@ -705,9 +718,18 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # לינק לחיפוש ידני
         from urllib.parse import quote
         url = f"https://www.geonames.org/search.html?q={quote(query)}"
-        await update.message.reply_text(
-            f"לא נמצאו תוצאות בחיפוש אוטומטי. אפשר לחפש ידנית כאן:\n{url}\nלאחר שתמצאו מזהה, הגדירו: /setgeo <ID> [שם-מיקום]",
-        )
+        no_results_msg = f"""
+❌ **לא נמצאו תוצאות עבור:** "{query}"
+
+אפשר לנסות:
+• 🌍 לבחור מרשימת ערים נפוצות: `/cities`
+• 🔍 לחפש ידנית ב-GeoNames: [לחץ כאן]({url})
+• 📝 לנסות שם אחר או באנגלית
+
+לאחר מציאת מזהה ב-GeoNames:
+`/setgeo <ID> [שם-עיר]`
+        """
+        await update.message.reply_text(no_results_msg, parse_mode='Markdown', disable_web_page_preview=True)
         return
     chat_id = str(update.effective_chat.id)
     _search_cache_by_chat[chat_id] = {}
@@ -717,11 +739,17 @@ async def cmd_findgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
         country = r.get('countryName') or ''
         admin1 = r.get('adminName1') or ''
         gid = r.get('geonameId') or ''
-        display = f"{name}, {country}{' · ' + admin1 if admin1 else ''} — {gid}"
+        # עיצוב כפתור מסודר יותר בעברית
+        location_parts = [name]
+        if admin1:
+            location_parts.append(admin1)
+        location_parts.append(country)
+        display = f"📍 {', '.join(location_parts)}"
         _search_cache_by_chat[chat_id][str(gid)] = f"{name}{' - ' + admin1 if admin1 else ''}"
         keyboard.append([InlineKeyboardButton(display, callback_data=f"setgeo:{gid}")])
     await update.message.reply_text(
-        "בחרו מיקום מהרשימה:",
+        "🌍 **בחר מיקום מתוצאות החיפוש:**\n\nלחץ על העיר הרצויה להגדרתה.",
+        parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
@@ -754,32 +782,58 @@ async def cb_setgeo_from_inline(update: Update, context: ContextTypes.DEFAULT_TY
     _save_storage()
     # ניקוי מקשים אינליין והודעת הצלחה
     try:
-        await query.edit_message_reply_markup(None)
+        await query.edit_message_text(
+            f"✅ **נבחר:** {location_name}\n\nהמיקום הוגדר בהצלחה!",
+            parse_mode='Markdown'
+        )
     except Exception:
         pass
-    await context.bot.send_message(chat_id=chat_id, text=f"✅ הוגדר מיקום לקבוצה זו: {location_name} (GeoName: {geoname_id})")
+    
+    success_msg = f"""
+✅ **המיקום הוגדר בהצלחה!**
+
+📍 **עיר:** {location_name}
+🆔 **GeoName ID:** {geoname_id}
+
+⏰ הבוט יתזמן אוטומטית את נעילת ופתיחת הקבוצה לפי זמני השבת במיקום זה.
+
+💡 להצגת זמני השבת הקרובה: `/times`
+⚙️ להצגת ההגדרות: `/settings`
+    """
+    await context.bot.send_message(chat_id=chat_id, text=success_msg, parse_mode='Markdown')
     schedule_shabbat()
 
 
 async def cmd_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
-    פקודת /cities - הצגת רשימת ערים נפוצות (אדמין בלבד)
+    פקודת /cities - הצגת רשימת ערים נפוצות עם כפתורים (אדמין בלבד)
     """
     if not await is_admin(update, context):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
-    msg = "🌍 **ערים נפוצות**\n\n"
-    msg += "בחר עיר מהרשימה באמצעות: `/setcity <מספר>` או `/setcity <שם-עיר>`\n\n"
+    chat_id = str(update.effective_chat.id)
+    _search_cache_by_chat[chat_id] = {}
     
+    msg = "🌍 **בחר עיר מהרשימה:**\n\n"
+    msg += "לחץ על העיר הרצויה להגדרתה כמיקום הקבוצה.\n"
+    msg += "🔍 לא מצאת את העיר? השתמש ב-`/searchcity <שם-עיר>`"
+    
+    keyboard = []
     cities_list = list(POPULAR_CITIES.items())
-    for idx, (city_name, city_data) in enumerate(cities_list, start=1):
-        msg += f"{idx}. {city_data['name']} (ID: {city_data['id']})\n"
     
-    msg += f"\n💡 דוגמה: `/setcity 1` או `/setcity ירושלים`\n"
-    msg += f"🔍 לחיפוש ערים נוספות: `/searchcity <שם-עיר>`"
+    for city_name, city_data in cities_list:
+        gid = city_data['id']
+        display_name = city_data['name']
+        # שמירה במטמון לשימוש ב-callback
+        _search_cache_by_chat[chat_id][str(gid)] = city_name
+        keyboard.append([InlineKeyboardButton(f"📍 {display_name}", callback_data=f"setgeo:{gid}")])
     
-    await update.message.reply_text(msg, parse_mode='Markdown')
+    await update.message.reply_text(
+        msg,
+        parse_mode='Markdown',
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
 
 
 async def cmd_setcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -836,12 +890,19 @@ async def cmd_setcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     break
         
         if not city_data:
-            await update.message.reply_text(
-                f"❌ העיר '{query}' לא נמצאה ברשימה.\n"
-                "להצגת רשימת ערים זמינות: `/cities`\n"
-                "לחיפוש ערים נוספות: `/searchcity <שם-עיר>`",
-                parse_mode='Markdown'
-            )
+            not_found_msg = f"""
+❌ **העיר "{query}" לא נמצאה ברשימת הערים הנפוצות**
+
+אפשר לנסות:
+• 🌍 להציג את רשימת הערים הזמינות: `/cities`
+• 🔍 לחפש את העיר: `/searchcity {query}`
+• 📝 לכתוב את השם באנגלית או בדיוק כמו ברשימה
+
+**דוגמאות:**
+• `/setcity ירושלים` (בדיוק כמו ברשימה)
+• `/setcity 1` (לפי מספר מהרשימה)
+            """
+            await update.message.reply_text(not_found_msg, parse_mode='Markdown')
             return
         
         geoname_id = city_data['id']
@@ -864,7 +925,18 @@ async def cmd_setcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     _storage_cache[key] = g
     _save_storage()
     
-    await update.message.reply_text(f"✅ הוגדר מיקום לקבוצה זו: {location} (GeoName: {geoname_id})")
+    success_msg = f"""
+✅ **המיקום הוגדר בהצלחה!**
+
+📍 **עיר:** {location}
+🆔 **GeoName ID:** {geoname_id}
+
+⏰ הבוט יתזמן אוטומטית את נעילת ופתיחת הקבוצה לפי זמני השבת במיקום זה.
+
+💡 להצגת זמני השבת הקרובה: `/times`
+⚙️ להצגת ההגדרות: `/settings`
+    """
+    await update.message.reply_text(success_msg, parse_mode='Markdown')
     
     # עדכון תזמון
     schedule_shabbat()
@@ -881,12 +953,22 @@ async def cmd_searchcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     args = context.args
     if not args:
-        await update.message.reply_text(
-            "שימוש: `/searchcity <שם-עיר>`\n"
-            "לדוגמה: `/searchcity Jerusalem` או `/searchcity תל אביב`\n\n"
-            "להצגת רשימת ערים נפוצות: `/cities`",
-            parse_mode='Markdown'
-        )
+        usage_msg = """
+🔍 **חיפוש עיר חדשה**
+
+**שימוש:**
+`/searchcity <שם-עיר>`
+
+**דוגמאות:**
+• `/searchcity Jerusalem`
+• `/searchcity תל אביב`
+• `/searchcity Amsterdam`
+
+💡 **טיפ:** מומלץ לחפש בשם באנגלית לתוצאות טובות יותר.
+
+🌍 להצגת רשימת ערים נפוצות: `/cities`
+        """
+        await update.message.reply_text(usage_msg, parse_mode='Markdown')
         return
     
     query = ' '.join(args).strip()
@@ -896,13 +978,18 @@ async def cmd_searchcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # לינק לחיפוש ידני
         from urllib.parse import quote
         url = f"https://www.geonames.org/search.html?q={quote(query)}"
-        await update.message.reply_text(
-            f"לא נמצאו תוצאות בחיפוש אוטומטי עבור '{query}'.\n\n"
-            f"אפשר לחפש ידנית כאן:\n{url}\n\n"
-            "לאחר שתמצאו מזהה, הגדירו: `/setgeo <ID> [שם-מיקום]`\n"
-            "או בחרו מרשימת ערים נפוצות: `/cities`",
-            parse_mode='Markdown'
-        )
+        no_results_msg = f"""
+❌ **לא נמצאו תוצאות עבור:** "{query}"
+
+אפשר לנסות:
+• 🌍 לבחור מרשימת ערים נפוצות: `/cities`
+• 🔍 לחפש ידנית ב-GeoNames: [לחץ כאן]({url})
+• 📝 לנסות שם אחר או באנגלית
+
+לאחר מציאת מזהה ב-GeoNames:
+`/setgeo <ID> [שם-עיר]`
+        """
+        await update.message.reply_text(no_results_msg, parse_mode='Markdown', disable_web_page_preview=True)
         return
     
     chat_id = str(update.effective_chat.id)
@@ -914,12 +1001,18 @@ async def cmd_searchcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
         country = r.get('countryName') or ''
         admin1 = r.get('adminName1') or ''
         gid = r.get('geonameId') or ''
-        display = f"{name}, {country}{' · ' + admin1 if admin1 else ''} — {gid}"
+        # עיצוב כפתור מסודר יותר בעברית
+        location_parts = [name]
+        if admin1:
+            location_parts.append(admin1)
+        location_parts.append(country)
+        display = f"📍 {', '.join(location_parts)}"
         _search_cache_by_chat[chat_id][str(gid)] = f"{name}{' - ' + admin1 if admin1 else ''}"
         keyboard.append([InlineKeyboardButton(display, callback_data=f"setgeo:{gid}")])
     
     await update.message.reply_text(
-        "בחרו מיקום מהרשימה:",
+        "🌍 **בחר מיקום מתוצאות החיפוש:**\n\nלחץ על העיר הרצויה להגדרתה.",
+        parse_mode='Markdown',
         reply_markup=InlineKeyboardMarkup(keyboard)
     )
 
