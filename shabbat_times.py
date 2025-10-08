@@ -2,6 +2,7 @@
 משיכת זמני שבת מ-Hebcal API
 """
 import requests
+import os
 from datetime import datetime, timedelta
 import pytz
 import config
@@ -102,6 +103,43 @@ def get_shabbat_times():
 
 def get_next_shabbat_times():
     return get_next_shabbat_times_for(config.GEONAME_ID, config.HAVDALAH_OFFSET)
+
+
+def search_geonames(query: str, max_results: int = 10):
+    """
+    חיפוש ערים בשירות GeoNames להחזרת geonameId לפי שם עיר.
+    מחזיר רשימת תוצאות רלוונטיות (עשויות להיות ריקות אם אין הרשאות/שם משתמש).
+    """
+    username = getattr(config, 'GEONAMES_USERNAME', None) or os.getenv('GEONAMES_USERNAME')
+    if not username:
+        # ללא שם משתמש אי אפשר לבצע חיפוש דרך ה-API
+        return []
+    try:
+        params = {
+            'q': query,
+            'maxRows': max_results,
+            'lang': 'he',
+            'isNameRequired': 'true',
+            'featureClass': 'P',  # מקומות מיושבים
+            'username': username,
+        }
+        url = 'http://api.geonames.org/searchJSON'
+        resp = requests.get(url, params=params, timeout=10)
+        resp.raise_for_status()
+        data = resp.json()
+        results = []
+        for item in data.get('geonames', []):
+            results.append({
+                'name': item.get('name') or '',
+                'countryName': item.get('countryName') or '',
+                'adminName1': item.get('adminName1') or '',
+                'geonameId': str(item.get('geonameId') or ''),
+                'lat': item.get('lat'),
+                'lng': item.get('lng'),
+            })
+        return results
+    except Exception:
+        return []
 
 
 if __name__ == "__main__":
