@@ -623,7 +623,6 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
         help_msg,
         parse_mode='Markdown',
         reply_markup=build_command_keyboard(is_admin_user, is_group_chat)
-        reply_markup=build_command_keyboard(is_admin_user)
     )
 
 
