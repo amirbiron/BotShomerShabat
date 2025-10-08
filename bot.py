@@ -77,6 +77,16 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
 
 
+def is_valid_geoname_id(value: str) -> bool:
+    """
+    מזהה GeoName תקין חייב להיות מספרי (כפי שנדרש על ידי Hebcal geonameid)
+    """
+    try:
+        return str(value).strip().isdigit()
+    except Exception:
+        return False
+
+
 def build_command_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
     """
     בונה מקשי מקלדת עם כל הפקודות. מציג פקודות אדמין רק לאדמינים.
@@ -268,6 +278,9 @@ async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not g:
         await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. אדמין: הגדרו מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
         return
+    if not is_valid_geoname_id(g.get('geoname_id', '')):
+        await update.message.reply_text("⚠️ מיקום לא תקין: GeoName ID חייב להיות מספרי. הגדרה מחדש: /setgeo <GEONAME_ID> [שם-מיקום]\nדוגמה: /setgeo 281184 ירושלים")
+        return
     times = get_next_shabbat_times_for(g['geoname_id'], g['havdalah_offset'])
     
     if not times:
@@ -366,7 +379,10 @@ async def cmd_setgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not args:
         await update.message.reply_text("שימוש: /setgeo <GEONAME_ID> [שם-מיקום]")
         return
-    geoname_id = args[0]
+    geoname_id = args[0].strip()
+    if not is_valid_geoname_id(geoname_id):
+        await update.message.reply_text("❌ GeoName ID חייב להיות מספרי. לדוגמה: 281184 (ירושלים).\nנסה: /setgeo 281184 ירושלים")
+        return
     location = ' '.join(args[1:]) if len(args) > 1 else 'Custom'
     chat_id = update.effective_chat.id
     key = str(chat_id)
@@ -544,6 +560,8 @@ async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 לאחר ההגדרה, הבוט יעדכן את זמני השבת לפי המיקום החדש.
 נשמר בקובץ ההגדרות של הקבוצה.
 
+ℹ️ שים לב: GeoName ID הוא מספרי בלבד (למשל: 281184 לירושלים)
+
 ---
 
 🕯️ /setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN]
@@ -584,6 +602,9 @@ def schedule_shabbat():
         gid = str(g['chat_id'])
 
         # משיכת זמני שבת עבור הקבוצה
+        if not is_valid_geoname_id(g.get('geoname_id', '')):
+            logger.error(f"❌ group {gid}: geoname_id לא תקין (צריך להיות מספרי). מדלג על תזמון.")
+            continue
         times = get_next_shabbat_times_for(g['geoname_id'], g['havdalah_offset'])
         if not times:
             logger.error(f"❌ לא הצלחתי למשוך זמני שבת לקבוצה {gid}. ננסה לרענן בעוד שעה.")
