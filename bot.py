@@ -26,6 +26,35 @@ scheduler = AsyncIOScheduler()
 
 # משתנה גלובלי לשמירת האפליקציה
 application = None
+STORAGE_FILE = 'groups.json'
+_storage_cache: dict[str, dict] = {}
+
+def _load_storage():
+    import json, os
+    global _storage_cache
+    if os.path.exists(STORAGE_FILE):
+        try:
+            with open(STORAGE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    _storage_cache = data
+                else:
+                    _storage_cache = {}
+        except Exception as e:
+            logger.error(f"❌ קריאת קובץ אחסון נכשלה: {e}")
+            _storage_cache = {}
+    else:
+        _storage_cache = {}
+
+
+def _save_storage():
+    import json
+    try:
+        with open(STORAGE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(_storage_cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"❌ שמירת קובץ אחסון נכשלה: {e}")
+
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -57,9 +86,15 @@ def _to_int_chat_id(chat_id: str | int) -> int:
 
 
 def _get_group_config(chat_id: int | str) -> dict | None:
+    # חיפוש בהגדרות הסביבה
     for g in config.GROUPS:
         if str(g['chat_id']) == str(chat_id):
             return g
+    # חיפוש באחסון הדינמי
+    key = str(chat_id)
+    g = _storage_cache.get(key)
+    if g:
+        return g
     return None
 
 
@@ -170,6 +205,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /lock - נעילה ידנית של הקבוצה
 /unlock - פתיחה ידנית של הקבוצה
 /settings - הצגת ההגדרות
+⚙️ אדמין: /setgeo /setoffsets /setmessages
 
 ✨ הבוט פועל אוטומטית - אין צורך לעשות דבר!
     """
@@ -184,7 +220,10 @@ async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # זיהוי הקבוצה הנוכחית לפי ההודעה
     chat_id = update.effective_chat.id
-    g = _get_group_config(chat_id) or config.GROUPS[0]
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. אדמין: הגדרו מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
     times = get_next_shabbat_times_for(g['geoname_id'], g['havdalah_offset'])
     
     if not times:
@@ -235,7 +274,11 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         next_refresh = refresh_job.next_run_time.strftime('%d/%m/%Y %H:%M')
         msg += f"🔄 רענון הבא: {next_refresh}\n"
     
-    g = _get_group_config(chat_id) or config.GROUPS[0]
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        msg += "\n📍 מיקום: לא מוגדר\nהגדרה: /setgeo <GEONAME_ID> [שם-מיקום]"
+        await update.message.reply_text(msg, parse_mode='Markdown')
+        return
     msg += f"\n📍 מיקום: {g['location']}"
     
     await update.message.reply_text(msg, parse_mode='Markdown')
@@ -251,6 +294,11 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     chat_id = update.effective_chat.id
     g = _get_group_config(chat_id) or config.GROUPS[0]
+    chat_id = update.effective_chat.id
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚙️ אין הגדרות לקבוצה זו. הגדרה ראשונית: /setgeo <GEONAME_ID> [שם-מיקום]", parse_mode='Markdown')
+        return
     msg = f"""
 ⚙️ **הגדרות הבוט**
 
@@ -266,6 +314,88 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
 • פתיחה: {g['unlock_message']}
     """
     await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_setgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("שימוש: /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    geoname_id = args[0]
+    location = ' '.join(args[1:]) if len(args) > 1 else 'Custom'
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    # ברירות מחדל
+    g = _get_group_config(chat_id) or {
+        'chat_id': key,
+        'candle_lighting_offset': config.CANDLE_LIGHTING_OFFSET,
+        'havdalah_offset': config.HAVDALAH_OFFSET,
+        'lock_message': config.LOCK_MESSAGE,
+        'unlock_message': config.UNLOCK_MESSAGE,
+    }
+    g.update({'geoname_id': geoname_id, 'location': location})
+    _storage_cache[key] = g
+    _save_storage()
+    await update.message.reply_text(f"✅ הוגדר מיקום לקבוצה זו: {location} (GeoName: {geoname_id})")
+    # עדכון תזמון
+    schedule_shabbat()
+
+
+async def cmd_setoffsets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("שימוש: /setoffsets <CANDLE_MINUTES> [HAVDALAH_MINUTES]")
+        return
+    try:
+        candle = int(args[0])
+        havdalah = int(args[1]) if len(args) > 1 else (config.HAVDALAH_OFFSET)
+    except ValueError:
+        await update.message.reply_text("ערכים לא חוקיים. יש להזין מספרים שלמים.")
+        return
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    g = _get_group_config(chat_id)
+    if not g:
+        await update.message.reply_text("⚠️ יש להגדיר קודם מיקום: /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    g['candle_lighting_offset'] = candle
+    g['havdalah_offset'] = havdalah
+    _storage_cache[key] = g
+    _save_storage()
+    await update.message.reply_text(f"✅ עודכנו זמני הדלקה/הבדלה: {candle}/{havdalah} דקות")
+    schedule_shabbat()
+
+
+async def cmd_setmessages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    # פורמט: /setmessages <LOCK_MESSAGE> || <UNLOCK_MESSAGE>
+    text = update.message.text or ''
+    parts = text.split(' ', 1)
+    if len(parts) < 2 or '||' not in parts[1]:
+        await update.message.reply_text("שימוש: /setmessages <LOCK_MESSAGE> || <UNLOCK_MESSAGE>")
+        return
+    lock_msg_raw, unlock_msg_raw = parts[1].split('||', 1)
+    lock_msg = lock_msg_raw.strip()
+    unlock_msg = unlock_msg_raw.strip()
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    g = _get_group_config(chat_id)
+    if not g:
+        await update.message.reply_text("⚠️ יש להגדיר קודם מיקום: /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    g['lock_message'] = lock_msg or g.get('lock_message') or config.LOCK_MESSAGE
+    g['unlock_message'] = unlock_msg or g.get('unlock_message') or config.UNLOCK_MESSAGE
+    _storage_cache[key] = g
+    _save_storage()
+    await update.message.reply_text("✅ עודכנו הודעות הנעילה והפתיחה לקבוצה זו")
 
 
 async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -340,7 +470,15 @@ def schedule_shabbat():
     """
     logger.info("📅 מתזמן את זמני השבת הקרובה לכל הקבוצות...")
 
+    # איחוד קבוצות מהקונפיג ומהאחסון הדינמי
+    merged_by_id: dict[str, dict] = {}
     for g in config.GROUPS:
+        merged_by_id[str(g['chat_id'])] = dict(g)
+    for key, sg in _storage_cache.items():
+        # העדפה להגדרות מהאחסון (דינמי)
+        merged_by_id[str(key)] = dict(sg)
+
+    for g in merged_by_id.values():
         gid = str(g['chat_id'])
 
         # משיכת זמני שבת עבור הקבוצה
@@ -402,11 +540,17 @@ async def main():
         # יצירת האפליקציה
         application = Application.builder().token(config.BOT_TOKEN).build()
         
+        # טעינת אחסון
+        _load_storage()
+
         # רישום handlers לפקודות
         application.add_handler(CommandHandler("start", cmd_start))
         application.add_handler(CommandHandler("times", cmd_times))
         application.add_handler(CommandHandler("status", cmd_status))
         application.add_handler(CommandHandler("settings", cmd_settings))
+        application.add_handler(CommandHandler("setgeo", cmd_setgeo))
+        application.add_handler(CommandHandler("setoffsets", cmd_setoffsets))
+        application.add_handler(CommandHandler("setmessages", cmd_setmessages))
         application.add_handler(CommandHandler("lock", cmd_lock))
         application.add_handler(CommandHandler("unlock", cmd_unlock))
         application.add_handler(CommandHandler("help", cmd_help))

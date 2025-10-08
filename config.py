@@ -75,20 +75,24 @@ if GROUPS_CONFIG:
 if not BOT_TOKEN:
     raise ValueError("❌ חסר TELEGRAM_BOT_TOKEN! הוסף אותו במשתני הסביבה")
 
-# אם לא הוגדר GROUPS_CONFIG - נשתמש בהגדרות יחידניות
+# אם לא הוגדר GROUPS_CONFIG - נשתמש בהגדרות יחידניות אם קיימות, אחרת נאפשר ריצה ללא קבוצות מוגדרות
 if not GROUPS:
-    if not CHAT_ID:
-        raise ValueError("❌ חסר CHAT_ID או GROUPS_CONFIG! הגדר אחד מהם במשתני הסביבה")
-    GROUPS = [{
-        'chat_id': CHAT_ID,
-        'location': LOCATION,
-        'geoname_id': GEONAME_ID,
-        'candle_lighting_offset': CANDLE_LIGHTING_OFFSET,
-        'havdalah_offset': HAVDALAH_OFFSET,
-        'lock_message': LOCK_MESSAGE,
-        'unlock_message': UNLOCK_MESSAGE,
-    }]
+    if CHAT_ID:
+        GROUPS = [{
+            'chat_id': CHAT_ID,
+            'location': LOCATION,
+            'geoname_id': GEONAME_ID,
+            'candle_lighting_offset': CANDLE_LIGHTING_OFFSET,
+            'havdalah_offset': HAVDALAH_OFFSET,
+            'lock_message': LOCK_MESSAGE,
+            'unlock_message': UNLOCK_MESSAGE,
+        }]
+    else:
+        GROUPS = []
 
 print("✅ הגדרות נטענו בהצלחה!")
-for g in GROUPS:
-    print(f"💬 קבוצה: {g['chat_id']} | 📍 מיקום: {g['location']} | 🆔 GeoName: {g['geoname_id']}")
+if GROUPS:
+    for g in GROUPS:
+        print(f"💬 קבוצה: {g['chat_id']} | 📍 מיקום: {g['location']} | 🆔 GeoName: {g['geoname_id']}")
+else:
+    print("ℹ️ אין קבוצות מוגדרות מראש. ניתן להגדיר קבוצה חדשה מתוך טלגרם באמצעות פקודות אדמין.")
