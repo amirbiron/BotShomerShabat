@@ -4,7 +4,7 @@
 """
 import asyncio
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from telegram import Update, Bot, ChatPermissions
 from telegram.ext import Application, CommandHandler, ContextTypes
 from telegram.error import TelegramError
@@ -12,7 +12,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.date import DateTrigger
 
 import config
-from shabbat_times import get_next_shabbat_times
+from shabbat_times import get_next_shabbat_times, get_next_shabbat_times_for
 
 # הגדרת logging
 logging.basicConfig(
@@ -26,6 +26,35 @@ scheduler = AsyncIOScheduler()
 
 # משתנה גלובלי לשמירת האפליקציה
 application = None
+STORAGE_FILE = 'groups.json'
+_storage_cache: dict[str, dict] = {}
+
+def _load_storage():
+    import json, os
+    global _storage_cache
+    if os.path.exists(STORAGE_FILE):
+        try:
+            with open(STORAGE_FILE, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+                if isinstance(data, dict):
+                    _storage_cache = data
+                else:
+                    _storage_cache = {}
+        except Exception as e:
+            logger.error(f"❌ קריאת קובץ אחסון נכשלה: {e}")
+            _storage_cache = {}
+    else:
+        _storage_cache = {}
+
+
+def _save_storage():
+    import json
+    try:
+        with open(STORAGE_FILE, 'w', encoding='utf-8') as f:
+            json.dump(_storage_cache, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"❌ שמירת קובץ אחסון נכשלה: {e}")
+
 
 
 async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
@@ -48,12 +77,33 @@ async def is_admin(update: Update, context: ContextTypes.DEFAULT_TYPE) -> bool:
         return False
 
 
-async def lock_group(context: ContextTypes.DEFAULT_TYPE = None):
+def _to_int_chat_id(chat_id: str | int) -> int:
+    try:
+        return int(chat_id)
+    except Exception:
+        # בטלגרם chat_id יכול להיות מחרוזת; ננסה להסיר רווחים וסימנים לא נחוצים
+        return int(str(chat_id).strip())
+
+
+def _get_group_config(chat_id: int | str) -> dict | None:
+    # חיפוש בהגדרות הסביבה
+    for g in config.GROUPS:
+        if str(g['chat_id']) == str(chat_id):
+            return g
+    # חיפוש באחסון הדינמי
+    key = str(chat_id)
+    g = _storage_cache.get(key)
+    if g:
+        return g
+    return None
+
+
+async def lock_group_for(chat_id: int | str, lock_message: str, context: ContextTypes.DEFAULT_TYPE = None):
     """
     נועל את הקבוצה - מאפשר רק לאדמינים לשלוח הודעות
     """
     try:
-        logger.info(f"🔒 נועל את הקבוצה {config.CHAT_ID}")
+        logger.info(f"🔒 נועל את הקבוצה {chat_id}")
         
         bot = application.bot if application else context.bot
         
@@ -74,15 +124,12 @@ async def lock_group(context: ContextTypes.DEFAULT_TYPE = None):
         
         # החלת ההרשאות על הקבוצה
         await bot.set_chat_permissions(
-            chat_id=config.CHAT_ID,
+            chat_id=_to_int_chat_id(chat_id),
             permissions=permissions
         )
         
         # שליחת הודעה לקבוצה
-        await bot.send_message(
-            chat_id=config.CHAT_ID,
-            text=config.LOCK_MESSAGE
-        )
+        await bot.send_message(chat_id=_to_int_chat_id(chat_id), text=lock_message)
         
         logger.info("✅ הקבוצה ננעלה בהצלחה!")
         
@@ -90,12 +137,12 @@ async def lock_group(context: ContextTypes.DEFAULT_TYPE = None):
         logger.error(f"❌ שגיאה בנעילת הקבוצה: {e}")
 
 
-async def unlock_group(context: ContextTypes.DEFAULT_TYPE = None):
+async def unlock_group_for(chat_id: int | str, unlock_message: str, context: ContextTypes.DEFAULT_TYPE = None):
     """
     פותח את הקבוצה - מאפשר לכולם לשלוח הודעות
     """
     try:
-        logger.info(f"🔓 פותח את הקבוצה {config.CHAT_ID}")
+        logger.info(f"🔓 פותח את הקבוצה {chat_id}")
         
         bot = application.bot if application else context.bot
         
@@ -116,15 +163,12 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE = None):
         
         # החלת ההרשאות על הקבוצה
         await bot.set_chat_permissions(
-            chat_id=config.CHAT_ID,
+            chat_id=_to_int_chat_id(chat_id),
             permissions=permissions
         )
         
         # שליחת הודעה לקבוצה
-        await bot.send_message(
-            chat_id=config.CHAT_ID,
-            text=config.UNLOCK_MESSAGE
-        )
+        await bot.send_message(chat_id=_to_int_chat_id(chat_id), text=unlock_message)
         
         logger.info("✅ הקבוצה נפתחה בהצלחה!")
         
@@ -132,26 +176,50 @@ async def unlock_group(context: ContextTypes.DEFAULT_TYPE = None):
         logger.error(f"❌ שגיאה בפתיחת הקבוצה: {e}")
 
 
+# תאימות לאחור: הפונקציות המקוריות פועלות על הקבוצה הראשונה בקונפיג
+async def lock_group(context: ContextTypes.DEFAULT_TYPE = None):
+    g = config.GROUPS[0]
+    await lock_group_for(g['chat_id'], g['lock_message'], context)
+
+
+async def unlock_group(context: ContextTypes.DEFAULT_TYPE = None):
+    g = config.GROUPS[0]
+    await unlock_group_for(g['chat_id'], g['unlock_message'], context)
+
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     פקודת /start - הודעת ברוכים הבאים
     """
     welcome_msg = """
-🕯️ **ברוך הבא לבוט "שומר שבת"!**
+🕯️ ברוך הבא לבוט "שומר שבת"!
 
-אני בוט אוטומטי שנועל את הקבוצה בכניסת שבת ופותח אותה בצאת השבת.
+שלום 👋
+אני בוט אוטומטי שנועל את הקבוצה בכניסת שבת ופותח אותה בצאת השבת – בדיוק בזמן, לפי המיקום שהוגדר.
 
-📋 **פקודות זמינות:**
-/times - הצגת זמני השבת הקרובה
-/status - סטטוס הבוט והתזמונים
-/help - עזרה ומידע
+---
 
-🔐 **פקודות אדמין בלבד:**
-/lock - נעילה ידנית של הקבוצה
-/unlock - פתיחה ידנית של הקבוצה
-/settings - הצגת ההגדרות
+📋 פקודות כלליות
+/times – הצגת זמני השבת הקרובה
+/status – מצב הבוט והתזמונים הנוכחיים
+/help – עזרה ומידע למשתמשים
 
-✨ הבוט פועל אוטומטית - אין צורך לעשות דבר!
+---
+
+🔐 פקודות אדמין
+(זמינות רק למנהלי הקבוצה)
+/lock – נעילה ידנית של הקבוצה
+/unlock – פתיחה ידנית של הקבוצה
+/settings – הצגת ההגדרות הקיימות
+/setgeo <GEONAME\_ID> [שם-מיקום] – הגדרת מיקום הקבוצה (חובה למיקום מדויק)
+/setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN] – הגדרת דקות לפני הדלקת נרות ואחרי הבדלה
+/setmessages <LOCK> || <UNLOCK> – הודעות נעילה ופתיחה מותאמות אישית
+/admin\_help – עזרה והסברים מפורטים לפקודות אדמין
+
+---
+
+✨ הבוט פועל אוטומטית!
+אין צורך להפעיל ידנית – רק להגדיר מיקום פעם אחת, והכול יתבצע מעצמו בכל שבוע 🙌
     """
     await update.message.reply_text(welcome_msg, parse_mode='Markdown')
 
@@ -162,7 +230,13 @@ async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """
     await update.message.reply_text("🔍 מושך זמני שבת...")
     
-    times = get_next_shabbat_times()
+    # זיהוי הקבוצה הנוכחית לפי ההודעה
+    chat_id = update.effective_chat.id
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. אדמין: הגדרו מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    times = get_next_shabbat_times_for(g['geoname_id'], g['havdalah_offset'])
     
     if not times:
         await update.message.reply_text("❌ לא הצלחתי למשוך זמני שבת. נסה שוב מאוחר יותר.")
@@ -178,7 +252,7 @@ async def cmd_times(update: Update, context: ContextTypes.DEFAULT_TYPE):
 🔥 **הדלקת נרות:** {candle}
 ✨ **הבדלה:** {havdalah}
 
-📍 מיקום: {config.LOCATION}
+📍 מיקום: {g['location']}
     """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -188,9 +262,11 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
     פקודת /status - סטטוס הבוט
     """
     # בדיקת תזמונים קיימים
-    lock_job = scheduler.get_job('lock_shabbat')
-    unlock_job = scheduler.get_job('unlock_shabbat')
-    refresh_job = scheduler.get_job('weekly_refresh')
+    chat_id = update.effective_chat.id
+    gid = str(chat_id)
+    lock_job = scheduler.get_job(f'lock_shabbat_{gid}')
+    unlock_job = scheduler.get_job(f'unlock_shabbat_{gid}')
+    refresh_job = scheduler.get_job(f'weekly_refresh_{gid}')
     
     msg = "🤖 **סטטוס הבוט**\n\n"
     
@@ -210,7 +286,12 @@ async def cmd_status(update: Update, context: ContextTypes.DEFAULT_TYPE):
         next_refresh = refresh_job.next_run_time.strftime('%d/%m/%Y %H:%M')
         msg += f"🔄 רענון הבא: {next_refresh}\n"
     
-    msg += f"\n📍 מיקום: {config.LOCATION}"
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        msg += "\n📍 מיקום: לא מוגדר\nהגדרה: /setgeo <GEONAME_ID> [שם-מיקום]"
+        await update.message.reply_text(msg, parse_mode='Markdown')
+        return
+    msg += f"\n📍 מיקום: {g['location']}"
     
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -223,21 +304,108 @@ async def cmd_settings(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
+    chat_id = update.effective_chat.id
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚙️ אין הגדרות לקבוצה זו. הגדרה ראשונית: /setgeo <GEONAME_ID> [שם-מיקום]", parse_mode='Markdown')
+        return
     msg = f"""
 ⚙️ **הגדרות הבוט**
 
-📍 **מיקום:** {config.LOCATION}
-🆔 **GeoName ID:** {config.GEONAME_ID}
+📍 **מיקום:** {g['location']}
+🆔 **GeoName ID:** {g['geoname_id']}
 
 ⏰ **זמנים:**
-• הדלקת נרות: {config.CANDLE_LIGHTING_OFFSET} דקות לפני שקיעה
-• הבדלה: {config.HAVDALAH_OFFSET if config.HAVDALAH_OFFSET > 0 else 'אוטומטי (3 כוכבים)'}
+• הדלקת נרות: {g['candle_lighting_offset']} דקות לפני שקיעה
+• הבדלה: {g['havdalah_offset'] if g['havdalah_offset'] > 0 else 'אוטומטי (3 כוכבים)'}
 
 💬 **הודעות:**
-• נעילה: {config.LOCK_MESSAGE}
-• פתיחה: {config.UNLOCK_MESSAGE}
+• נעילה: {g['lock_message']}
+• פתיחה: {g['unlock_message']}
     """
     await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_setgeo(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("שימוש: /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    geoname_id = args[0]
+    location = ' '.join(args[1:]) if len(args) > 1 else 'Custom'
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    # ברירות מחדל
+    g = _get_group_config(chat_id) or {
+        'chat_id': key,
+        'candle_lighting_offset': config.CANDLE_LIGHTING_OFFSET,
+        'havdalah_offset': config.HAVDALAH_OFFSET,
+        'lock_message': config.LOCK_MESSAGE,
+        'unlock_message': config.UNLOCK_MESSAGE,
+    }
+    g.update({'geoname_id': geoname_id, 'location': location})
+    _storage_cache[key] = g
+    _save_storage()
+    await update.message.reply_text(f"✅ הוגדר מיקום לקבוצה זו: {location} (GeoName: {geoname_id})")
+    # עדכון תזמון
+    schedule_shabbat()
+
+
+async def cmd_setoffsets(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    args = context.args
+    if not args:
+        await update.message.reply_text("שימוש: /setoffsets <CANDLE_MINUTES> [HAVDALAH_MINUTES]")
+        return
+    try:
+        candle = int(args[0])
+        havdalah = int(args[1]) if len(args) > 1 else (config.HAVDALAH_OFFSET)
+    except ValueError:
+        await update.message.reply_text("ערכים לא חוקיים. יש להזין מספרים שלמים.")
+        return
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    g = _get_group_config(chat_id)
+    if not g:
+        await update.message.reply_text("⚠️ יש להגדיר קודם מיקום: /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    g['candle_lighting_offset'] = candle
+    g['havdalah_offset'] = havdalah
+    _storage_cache[key] = g
+    _save_storage()
+    await update.message.reply_text(f"✅ עודכנו זמני הדלקה/הבדלה: {candle}/{havdalah} דקות")
+    schedule_shabbat()
+
+
+async def cmd_setmessages(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    # פורמט: /setmessages <LOCK_MESSAGE> || <UNLOCK_MESSAGE>
+    text = update.message.text or ''
+    parts = text.split(' ', 1)
+    if len(parts) < 2 or '||' not in parts[1]:
+        await update.message.reply_text("שימוש: /setmessages <LOCK_MESSAGE> || <UNLOCK_MESSAGE>")
+        return
+    lock_msg_raw, unlock_msg_raw = parts[1].split('||', 1)
+    lock_msg = lock_msg_raw.strip()
+    unlock_msg = unlock_msg_raw.strip()
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    g = _get_group_config(chat_id)
+    if not g:
+        await update.message.reply_text("⚠️ יש להגדיר קודם מיקום: /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
+    g['lock_message'] = lock_msg or g.get('lock_message') or config.LOCK_MESSAGE
+    g['unlock_message'] = unlock_msg or g.get('unlock_message') or config.UNLOCK_MESSAGE
+    _storage_cache[key] = g
+    _save_storage()
+    await update.message.reply_text("✅ עודכנו הודעות הנעילה והפתיחה לקבוצה זו")
 
 
 async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -248,8 +416,13 @@ async def cmd_lock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
+    chat_id = update.effective_chat.id
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. הגדירו תחילה מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
     await update.message.reply_text("🔒 נועל את הקבוצה...")
-    await lock_group(context)
+    await lock_group_for(g['chat_id'], g['lock_message'], context)
     await update.message.reply_text("✅ הקבוצה ננעלה!")
 
 
@@ -261,8 +434,13 @@ async def cmd_unlock(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
         return
     
+    chat_id = update.effective_chat.id
+    g = _get_group_config(chat_id) or (config.GROUPS[0] if config.GROUPS else None)
+    if not g:
+        await update.message.reply_text("⚠️ הקבוצה לא מוגדרת. הגדירו תחילה מיקום עם /setgeo <GEONAME_ID> [שם-מיקום]")
+        return
     await update.message.reply_text("🔓 פותח את הקבוצה...")
-    await unlock_group(context)
+    await unlock_group_for(g['chat_id'], g['unlock_message'], context)
     await update.message.reply_text("✅ הקבוצה נפתחה!")
 
 
@@ -271,89 +449,137 @@ async def cmd_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
     פקודת /help - עזרה
     """
     help_msg = """
-🕯️ **עזרה - בוט שומר שבת**
+🕯️ עזרה - בוט שומר שבת
 
-**מה הבוט עושה?**
+מה הבוט עושה?
 הבוט נועל את הקבוצה אוטומטית בזמן הדלקת נרות ופותח אותה בזמן הבדלה.
 
-📋 **פקודות כלליות:**
+📋 פקודות כלליות:
 • /times - הצגת זמני השבת הקרובה
 • /status - סטטוס הבוט והתזמונים הקרובים
 • /help - הודעת עזרה זו
 
-🔐 **פקודות אדמין:**
+🔐 פקודות אדמין:
 • /lock - נעילה ידנית של הקבוצה
 • /unlock - פתיחה ידנית של הקבוצה
 • /settings - הצגת הגדרות הבוט
 
-❓ **שאלות נפוצות:**
+❓ שאלות נפוצות:
 
-**איך הבוט יודע את זמני השבת?**
+איך הבוט יודע את זמני השבת?
 הבוט משתמש ב-Hebcal API ומושך את הזמנים לפי המיקום שהוגדר.
 
-**מה אם זמני השבת לא מדויקים?**
+מה אם זמני השבת לא מדויקים?
 ניתן לשנות את ההגדרות (מיקום, דקות לפני/אחרי) במשתני הסביבה.
 
-**האם הבוט פועל גם בחגים?**
+האם הבוט פועל גם בחגים?
 כרגע הבוט פועל רק בשבת. תמיכה בחגים תתווסף בעתיד.
 
-✨ נתקלת בבעיה? פנה למפתח הבוט.
+✨ נתקלת בבעיה? פנה למפתח הבוט: @moominAmir
     """
     await update.message.reply_text(help_msg, parse_mode='Markdown')
 
 
+async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    msg = """
+פקודות בוט שומר שבת
+
+שלום 👋
+הבוט נועד לעזור לקבוצות לשמור שבת בצורה נוחה – עם זמני נעילה ופתיחה אוטומטיים, הודעות מותאמות ועוד.
+להלן הפקודות הזמינות לאדמינים:
+
+---
+
+🗺️ /setgeo <GEONAME\_ID> [שם-מיקום]
+הגדרת מיקום הקבוצה לפי GeoNames (חובה).
+אפשר לציין גם שם תצוגה (אופציונלי).
+לאחר ההגדרה, הבוט יעדכן את זמני השבת לפי המיקום החדש.
+נשמר בקובץ ההגדרות של הקבוצה.
+
+---
+
+🕯️ /setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN]
+הגדרת זמני הדלקת נרות והבדלה.
+
+<CANDLE\_MIN> – כמה דקות לפני שקיעה מדליקים נרות.
+
+[HAVDALAH\_MIN] – כמה דקות אחרי שקיעה עושים הבדלה (אם לא מצוין, נשמר הערך הקודם).
+ברירת מחדל: 0 = שלושה כוכבים.
+הבוט יעדכן את התזמון של ההודעות בהתאם.
+
+---
+
+🔒 /setmessages <LOCK> || <UNLOCK>
+הגדרת הודעות נעילה ופתיחה מותאמות אישית.
+ההודעות נפרדות בעזרת ||.
+דוגמה:
+/setmessages שבת שלום 🌙 || שבוע טוב 🌅
+    """
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
 def schedule_shabbat():
     """
-    מתזמן את נעילת ופתיחת הקבוצה לפי זמני השבת
+    מתזמן את נעילת ופתיחת הקבוצות לפי זמני השבת עבור כל קבוצה
     """
-    logger.info("📅 מתזמן את זמני השבת הקרובה...")
-    
-    # משיכת זמני שבת
-    times = get_next_shabbat_times()
-    
-    if not times:
-        logger.error("❌ לא הצלחתי למשוך זמני שבת. ננסה שוב בעוד שעה.")
-        # תזמון ניסיון חוזר בעוד שעה
+    logger.info("📅 מתזמן את זמני השבת הקרובה לכל הקבוצות...")
+
+    # איחוד קבוצות מהקונפיג ומהאחסון הדינמי
+    merged_by_id: dict[str, dict] = {}
+    for g in config.GROUPS:
+        merged_by_id[str(g['chat_id'])] = dict(g)
+    for key, sg in _storage_cache.items():
+        # העדפה להגדרות מהאחסון (דינמי)
+        merged_by_id[str(key)] = dict(sg)
+
+    for g in merged_by_id.values():
+        gid = str(g['chat_id'])
+
+        # משיכת זמני שבת עבור הקבוצה
+        times = get_next_shabbat_times_for(g['geoname_id'], g['havdalah_offset'])
+        if not times:
+            logger.error(f"❌ לא הצלחתי למשוך זמני שבת לקבוצה {gid}. ננסה לרענן בעוד שעה.")
+            retry_time = datetime.now().replace(microsecond=0) + timedelta(hours=1)
+            scheduler.add_job(schedule_shabbat, DateTrigger(run_date=retry_time), id=f'retry_schedule_{gid}', replace_existing=True)
+            continue
+
+        candle_lighting = times['candle_lighting']
+        havdalah = times['havdalah']
+
+        # הסרת תזמונים קיימים לקבוצה זו (אם יש)
+        for job_id in [f'lock_shabbat_{gid}', f'unlock_shabbat_{gid}']:
+            if scheduler.get_job(job_id):
+                scheduler.remove_job(job_id)
+
+        # תזמון נעילה בכניסת שבת
+        scheduler.add_job(
+            lock_group_for,
+            DateTrigger(run_date=candle_lighting),
+            id=f'lock_shabbat_{gid}',
+            args=[g['chat_id'], g['lock_message']],
+            replace_existing=True,
+        )
+        logger.info(f"⏰ תוזמן נעילה לקבוצה {gid}: {candle_lighting.strftime('%Y-%m-%d %H:%M')}")
+
+        # תזמון פתיחה בצאת השבת
+        scheduler.add_job(
+            unlock_group_for,
+            DateTrigger(run_date=havdalah),
+            id=f'unlock_shabbat_{gid}',
+            args=[g['chat_id'], g['unlock_message']],
+            replace_existing=True,
+        )
+        logger.info(f"⏰ תוזמן פתיחה לקבוצה {gid}: {havdalah.strftime('%Y-%m-%d %H:%M')}")
+
+        # תזמון רענון שבועי פרטני לכל קבוצה (ביום ראשון בלילה יחסית ל-UTC)
+        next_refresh = havdalah.replace(hour=23, minute=0, second=0, microsecond=0)
         scheduler.add_job(
             schedule_shabbat,
-            DateTrigger(run_date=datetime.now().replace(microsecond=0) + 
-                       asyncio.get_event_loop().create_task(asyncio.sleep(3600)).result()),
-            id='retry_schedule'
+            DateTrigger(run_date=next_refresh),
+            id=f'weekly_refresh_{gid}',
+            replace_existing=True,
         )
-        return
-    
-    candle_lighting = times['candle_lighting']
-    havdalah = times['havdalah']
-    
-    # הסרת תזמונים קיימים (אם יש)
-    for job_id in ['lock_shabbat', 'unlock_shabbat']:
-        if scheduler.get_job(job_id):
-            scheduler.remove_job(job_id)
-    
-    # תזמון נעילה בכניסת שבת
-    scheduler.add_job(
-        lock_group,
-        DateTrigger(run_date=candle_lighting),
-        id='lock_shabbat'
-    )
-    logger.info(f"⏰ תוזמן נעילה: {candle_lighting.strftime('%Y-%m-%d %H:%M')}")
-    
-    # תזמון פתיחה בצאת השבת
-    scheduler.add_job(
-        unlock_group,
-        DateTrigger(run_date=havdalah),
-        id='unlock_shabbat'
-    )
-    logger.info(f"⏰ תוזמן פתיחה: {havdalah.strftime('%Y-%m-%d %H:%M')}")
-    
-    # תזמון רענון שבועי (ביום ראשון בלילה)
-    next_refresh = havdalah.replace(hour=23, minute=0, second=0, microsecond=0)
-    scheduler.add_job(
-        schedule_shabbat,
-        DateTrigger(run_date=next_refresh),
-        id='weekly_refresh'
-    )
-    logger.info(f"🔄 רענון שבועי יתבצע ב: {next_refresh.strftime('%Y-%m-%d %H:%M')}")
+        logger.info(f"🔄 רענון שבועי עבור {gid} יתבצע ב: {next_refresh.strftime('%Y-%m-%d %H:%M')}")
 
 
 async def main():
@@ -368,14 +594,21 @@ async def main():
         # יצירת האפליקציה
         application = Application.builder().token(config.BOT_TOKEN).build()
         
+        # טעינת אחסון
+        _load_storage()
+
         # רישום handlers לפקודות
         application.add_handler(CommandHandler("start", cmd_start))
         application.add_handler(CommandHandler("times", cmd_times))
         application.add_handler(CommandHandler("status", cmd_status))
         application.add_handler(CommandHandler("settings", cmd_settings))
+        application.add_handler(CommandHandler("setgeo", cmd_setgeo))
+        application.add_handler(CommandHandler("setoffsets", cmd_setoffsets))
+        application.add_handler(CommandHandler("setmessages", cmd_setmessages))
         application.add_handler(CommandHandler("lock", cmd_lock))
         application.add_handler(CommandHandler("unlock", cmd_unlock))
         application.add_handler(CommandHandler("help", cmd_help))
+        application.add_handler(CommandHandler("admin_help", cmd_admin_help))
         # רישום error handler גלובלי
         application.add_error_handler(error_handler)
         
