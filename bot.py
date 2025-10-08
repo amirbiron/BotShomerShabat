@@ -30,6 +30,22 @@ STORAGE_FILE = 'groups.json'
 _storage_cache: dict[str, dict] = {}
 _search_cache_by_chat: dict[str, dict[str, str]] = {}
 
+# רשימת ערים נפוצות עם מזהי GeoName
+POPULAR_CITIES = {
+    "ירושלים": {"id": "281184", "name": "ירושלים, ישראל"},
+    "תל אביב": {"id": "293397", "name": "תל אביב, ישראל"},
+    "חיפה": {"id": "294801", "name": "חיפה, ישראל"},
+    "באר שבע": {"id": "295530", "name": "באר שבע, ישראל"},
+    "פתח תקווה": {"id": "293322", "name": "פתח תקווה, ישראל"},
+    "נתניה": {"id": "293619", "name": "נתניה, ישראל"},
+    "אשדוד": {"id": "295629", "name": "אשדוד, ישראל"},
+    "ניו יורק": {"id": "5128581", "name": "ניו יורק, ארה\"ב"},
+    "לוס אנג'לס": {"id": "5368361", "name": "לוס אנג'לס, ארה\"ב"},
+    "לונדון": {"id": "2643743", "name": "לונדון, בריטניה"},
+    "פריז": {"id": "2988507", "name": "פריז, צרפת"},
+    "מיאמי": {"id": "4164138", "name": "מיאמי, ארה\"ב"},
+}
+
 def _load_storage():
     import json, os
     global _storage_cache
@@ -102,8 +118,9 @@ def build_command_keyboard(is_admin: bool) -> ReplyKeyboardMarkup:
         admin_rows = [
             [KeyboardButton("/lock"), KeyboardButton("/unlock")],
             [KeyboardButton("/settings"), KeyboardButton("/admin_help")],
-            [KeyboardButton("/setgeo"), KeyboardButton("/findgeo")],
-            [KeyboardButton("/setoffsets")],
+            [KeyboardButton("/cities"), KeyboardButton("/setcity")],
+            [KeyboardButton("/searchcity"), KeyboardButton("/findgeo")],
+            [KeyboardButton("/setgeo"), KeyboardButton("/setoffsets")],
             [KeyboardButton("/setmessages")],
         ]
 
@@ -250,10 +267,17 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 /lock – נעילה ידנית של הקבוצה
 /unlock – פתיחה ידנית של הקבוצה
 /settings – הצגת ההגדרות הקיימות
-/setgeo <GEONAME\_ID> [שם-מיקום] – הגדרת מיקום הקבוצה (חובה למיקום מדויק)
-/setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN] – הגדרת דקות לפני הדלקת נרות ואחרי הבדלה
+
+🌍 הגדרת מיקום (3 דרכים):
+/cities – הצגת רשימת ערים נפוצות
+/setcity <מספר\\_או\\_שם> – בחירת עיר מהרשימה (הדרך הכי קלה!)
+/searchcity <שם-עיר> – חיפוש עיר חדשה
+/setgeo <GEONAME\\_ID> [שם-מיקום] – הגדרת מיקום ידנית
+
+⚙️ הגדרות מתקדמות:
+/setoffsets <CANDLE\\_MIN> [HAVDALAH\\_MIN] – הגדרת דקות לפני הדלקת נרות ואחרי הבדלה
 /setmessages <LOCK> || <UNLOCK> – הודעות נעילה ופתיחה מותאמות אישית
-/admin\_help – עזרה והסברים מפורטים לפקודות אדמין
+/admin\\_help – עזרה והסברים מפורטים לפקודות אדמין
 
 ---
 
@@ -556,35 +580,43 @@ async def cmd_admin_help(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 ---
 
-🗺️ /setgeo <GEONAME\_ID> [שם-מיקום]
-הגדרת מיקום הקבוצה לפי GeoNames (חובה).
-אפשר לציין גם שם תצוגה (אופציונלי).
-לאחר ההגדרה, הבוט יעדכן את זמני השבת לפי המיקום החדש.
-נשמר בקובץ ההגדרות של הקבוצה.
+🌍 **הגדרת מיקום – 3 דרכים קלות:**
 
-ℹ️ שים לב: GeoName ID הוא מספרי בלבד (למשל: 281184 לירושלים)
+**דרך 1: רשימת ערים נפוצות (הכי פשוט!)** ⭐
+1️⃣ `/cities` – הצגת רשימת ערים נפוצות
+2️⃣ `/setcity <מספר>` או `/setcity <שם-עיר>`
+   דוגמה: `/setcity 1` או `/setcity ירושלים`
 
-🔎 /findgeo <שם-עיר>
-חיפוש מזהה GeoName לפי שם עיר והצגת כפתורי בחירה מהירים.
+**דרך 2: חיפוש עיר חדשה** 🔍
+`/searchcity <שם-עיר>`
+דוגמה: `/searchcity Jerusalem` או `/searchcity תל אביב`
+הבוט יציג רשימת תוצאות עם כפתורי בחירה.
+
+**דרך 3: הגדרה ידנית (למתקדמים)** 🔧
+`/setgeo <GEONAME\\_ID> [שם-מיקום]`
+הגדרת מיקום הקבוצה לפי GeoNames ID מספרי.
+דוגמה: `/setgeo 281184 ירושלים`
+
+`/findgeo <שם-עיר>` – חיפוש מזהה GeoName (זהה ל-searchcity)
 
 ---
 
-🕯️ /setoffsets <CANDLE\_MIN> [HAVDALAH\_MIN]
+🕯️ `/setoffsets <CANDLE\\_MIN> [HAVDALAH\\_MIN]`
 הגדרת זמני הדלקת נרות והבדלה.
 
-<CANDLE\_MIN> – כמה דקות לפני שקיעה מדליקים נרות.
+<CANDLE\\_MIN> – כמה דקות לפני שקיעה מדליקים נרות.
 
-[HAVDALAH\_MIN] – כמה דקות אחרי שקיעה עושים הבדלה (אם לא מצוין, נשמר הערך הקודם).
+[HAVDALAH\\_MIN] – כמה דקות אחרי שקיעה עושים הבדלה (אם לא מצוין, נשמר הערך הקודם).
 ברירת מחדל: 0 = שלושה כוכבים.
 הבוט יעדכן את התזמון של ההודעות בהתאם.
 
 ---
 
-🔒 /setmessages <LOCK> || <UNLOCK>
+🔒 `/setmessages <LOCK> || <UNLOCK>`
 הגדרת הודעות נעילה ופתיחה מותאמות אישית.
 ההודעות נפרדות בעזרת ||.
 דוגמה:
-/setmessages שבת שלום 🌙 || שבוע טוב 🌅
+`/setmessages שבת שלום 🌙 || שבוע טוב 🌅`
     """
     await update.message.reply_text(msg, parse_mode='Markdown')
 
@@ -729,6 +761,169 @@ async def cb_setgeo_from_inline(update: Update, context: ContextTypes.DEFAULT_TY
     schedule_shabbat()
 
 
+async def cmd_cities(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /cities - הצגת רשימת ערים נפוצות (אדמין בלבד)
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    
+    msg = "🌍 **ערים נפוצות**\n\n"
+    msg += "בחר עיר מהרשימה באמצעות: `/setcity <מספר>` או `/setcity <שם-עיר>`\n\n"
+    
+    cities_list = list(POPULAR_CITIES.items())
+    for idx, (city_name, city_data) in enumerate(cities_list, start=1):
+        msg += f"{idx}. {city_data['name']} (ID: {city_data['id']})\n"
+    
+    msg += f"\n💡 דוגמה: `/setcity 1` או `/setcity ירושלים`\n"
+    msg += f"🔍 לחיפוש ערים נוספות: `/searchcity <שם-עיר>`"
+    
+    await update.message.reply_text(msg, parse_mode='Markdown')
+
+
+async def cmd_setcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /setcity - בחירת עיר מהרשימה לפי מספר או שם (אדמין בלבד)
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "שימוש: `/setcity <מספר>` או `/setcity <שם-עיר>`\n"
+            "דוגמה: `/setcity 1` או `/setcity ירושלים`\n\n"
+            "להצגת רשימת הערים: `/cities`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    query = ' '.join(args).strip()
+    
+    # בדיקה אם זה מספר (אינדקס ברשימה)
+    if query.isdigit():
+        idx = int(query) - 1
+        cities_list = list(POPULAR_CITIES.items())
+        if 0 <= idx < len(cities_list):
+            city_name, city_data = cities_list[idx]
+            geoname_id = city_data['id']
+            location = city_data['name']
+        else:
+            await update.message.reply_text(
+                f"❌ מספר לא חוקי. בחר מספר בין 1 ל-{len(POPULAR_CITIES)}.\n"
+                "להצגת הרשימה: `/cities`",
+                parse_mode='Markdown'
+            )
+            return
+    else:
+        # חיפוש לפי שם עיר
+        city_data = None
+        city_name = None
+        
+        # חיפוש מדויק
+        if query in POPULAR_CITIES:
+            city_data = POPULAR_CITIES[query]
+            city_name = query
+        else:
+            # חיפוש case-insensitive
+            query_lower = query.lower()
+            for name, data in POPULAR_CITIES.items():
+                if name.lower() == query_lower:
+                    city_data = data
+                    city_name = name
+                    break
+        
+        if not city_data:
+            await update.message.reply_text(
+                f"❌ העיר '{query}' לא נמצאה ברשימה.\n"
+                "להצגת רשימת ערים זמינות: `/cities`\n"
+                "לחיפוש ערים נוספות: `/searchcity <שם-עיר>`",
+                parse_mode='Markdown'
+            )
+            return
+        
+        geoname_id = city_data['id']
+        location = city_data['name']
+    
+    # הגדרת המיקום בקבוצה
+    chat_id = update.effective_chat.id
+    key = str(chat_id)
+    
+    # ברירות מחדל
+    g = _get_group_config(chat_id) or {
+        'chat_id': key,
+        'candle_lighting_offset': config.CANDLE_LIGHTING_OFFSET,
+        'havdalah_offset': config.HAVDALAH_OFFSET,
+        'lock_message': config.LOCK_MESSAGE,
+        'unlock_message': config.UNLOCK_MESSAGE,
+    }
+    
+    g.update({'geoname_id': geoname_id, 'location': location})
+    _storage_cache[key] = g
+    _save_storage()
+    
+    await update.message.reply_text(f"✅ הוגדר מיקום לקבוצה זו: {location} (GeoName: {geoname_id})")
+    
+    # עדכון תזמון
+    schedule_shabbat()
+
+
+async def cmd_searchcity(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """
+    פקודת /searchcity - חיפוש עיר חדשה (אדמין בלבד)
+    זהה לפקודת /findgeo אך עם שם יותר אינטואיטיבי
+    """
+    if not await is_admin(update, context):
+        await update.message.reply_text("⛔ פקודה זו זמינה רק לאדמינים של הקבוצה.")
+        return
+    
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "שימוש: `/searchcity <שם-עיר>`\n"
+            "לדוגמה: `/searchcity Jerusalem` או `/searchcity תל אביב`\n\n"
+            "להצגת רשימת ערים נפוצות: `/cities`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    query = ' '.join(args).strip()
+    results = search_geonames(query, max_results=8)
+    
+    if not results:
+        # לינק לחיפוש ידני
+        from urllib.parse import quote
+        url = f"https://www.geonames.org/search.html?q={quote(query)}"
+        await update.message.reply_text(
+            f"לא נמצאו תוצאות בחיפוש אוטומטי עבור '{query}'.\n\n"
+            f"אפשר לחפש ידנית כאן:\n{url}\n\n"
+            "לאחר שתמצאו מזהה, הגדירו: `/setgeo <ID> [שם-מיקום]`\n"
+            "או בחרו מרשימת ערים נפוצות: `/cities`",
+            parse_mode='Markdown'
+        )
+        return
+    
+    chat_id = str(update.effective_chat.id)
+    _search_cache_by_chat[chat_id] = {}
+    keyboard = []
+    
+    for r in results:
+        name = r.get('name') or ''
+        country = r.get('countryName') or ''
+        admin1 = r.get('adminName1') or ''
+        gid = r.get('geonameId') or ''
+        display = f"{name}, {country}{' · ' + admin1 if admin1 else ''} — {gid}"
+        _search_cache_by_chat[chat_id][str(gid)] = f"{name}{' - ' + admin1 if admin1 else ''}"
+        keyboard.append([InlineKeyboardButton(display, callback_data=f"setgeo:{gid}")])
+    
+    await update.message.reply_text(
+        "בחרו מיקום מהרשימה:",
+        reply_markup=InlineKeyboardMarkup(keyboard)
+    )
+
+
 async def main():
     """
     פונקציה ראשית - מפעילה את הבוט
@@ -750,6 +945,9 @@ async def main():
         application.add_handler(CommandHandler("times", cmd_times))
         application.add_handler(CommandHandler("status", cmd_status))
         application.add_handler(CommandHandler("settings", cmd_settings))
+        application.add_handler(CommandHandler("cities", cmd_cities))
+        application.add_handler(CommandHandler("setcity", cmd_setcity))
+        application.add_handler(CommandHandler("searchcity", cmd_searchcity))
         application.add_handler(CommandHandler("setgeo", cmd_setgeo))
         application.add_handler(CommandHandler("setoffsets", cmd_setoffsets))
         application.add_handler(CommandHandler("setmessages", cmd_setmessages))
@@ -777,6 +975,9 @@ async def main():
             BotCommand("unlock", "פתיחה (אדמין)"),
             BotCommand("settings", "הגדרות (אדמין)"),
             BotCommand("admin_help", "עזרה לאדמין"),
+            BotCommand("cities", "רשימת ערים נפוצות (אדמין)"),
+            BotCommand("setcity", "בחירת עיר מהרשימה (אדמין)"),
+            BotCommand("searchcity", "חיפוש עיר חדשה (אדמין)"),
             BotCommand("setgeo", "הגדרת מיקום (אדמין)"),
             BotCommand("setoffsets", "עדכון הדלקה/הבדלה (אדמין)"),
             BotCommand("setmessages", "עדכון הודעות (אדמין)"),
