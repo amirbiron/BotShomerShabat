@@ -9,6 +9,7 @@
 - 📍 **תמיכה בכל מיקום** בעולם (דרך GeoNames)
 - 🔄 **רענון שבועי** אוטומטי של זמני שבת
 - 💬 **הודעות מותאמות אישית**
+- 🧩 **תמיכה בריבוי קבוצות/מיקומים** (באמצעות GROUPS_CONFIG)
 - 🤖 **פקודות ניהול** לאדמינים
 - ☁️ **פריסה חינמית** על Render
 
@@ -86,7 +87,11 @@ cp .env.example .env
 
 #### ג. הוספת משתני סביבה ב-Render
 
-לחץ על **Environment** והוסף:
+לחץ על **Environment** והוסף את `TELEGRAM_BOT_TOKEN`. לאחר מכן בחר אחת מהאפשרויות:
+
+##### אפשרות א: קבוצה אחת (פשוט ומהיר)
+
+הוסף את המשתנים הבאים:
 
 | Key | Value | דוגמה |
 |-----|-------|--------|
@@ -100,6 +105,37 @@ cp .env.example .env
 - `HAVDALAH_OFFSET` - דקות אחרי שקיעה (ברירת מחדל: 0 = אוטומטי)
 - `LOCK_MESSAGE` - הודעה בכניסת שבת
 - `UNLOCK_MESSAGE` - הודעה בצאת שבת
+
+##### אפשרות ב: ריבוי קבוצות/מיקומים (אינסטנס אחד לכמה קבוצות)
+
+במקום המשתנים של אפשרות א (לא צריך `CHAT_ID/GEONAME_ID/LOCATION`), הוסף משתנה אחד:
+
+- `GROUPS_CONFIG` — ערך מסוג JSON של מערך קבוצות. דוגמה:
+
+```json
+[
+  {
+    "chat_id": "-1001234567890",
+    "location": "Jerusalem",
+    "geoname_id": "281184",
+    "candle_lighting_offset": 18,
+    "havdalah_offset": 0,
+    "lock_message": "🕯️ שבת שלום!",
+    "unlock_message": "✨ שבוע טוב!"
+  },
+  {
+    "chat_id": "-1009876543210",
+    "location": "Tel Aviv",
+    "geoname_id": "293397",
+    "candle_lighting_offset": 18,
+    "havdalah_offset": 0
+  }
+]
+```
+
+הערות:
+- אם הוגדר `GROUPS_CONFIG`, אין צורך ב-`CHAT_ID/GEONAME_ID/LOCATION` (עדיין חובה `TELEGRAM_BOT_TOKEN`).
+- ניתן לשלב שדות ברירת מחדל גלובליים; כל שדה חסר בקבוצה יירש ברירת מחדל מהגלובלי.
 
 #### ד. פריסה
 

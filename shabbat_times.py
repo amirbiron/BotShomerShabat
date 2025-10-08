@@ -4,9 +4,9 @@
 import requests
 from datetime import datetime, timedelta
 import pytz
-from config import GEONAME_ID, HAVDALAH_OFFSET
+import config
 
-def get_shabbat_times():
+def get_shabbat_times_for(geoname_id: str, havdalah_offset: int):
     """
     מושך את זמני השבת הקרובה מ-Hebcal API
     
@@ -16,11 +16,11 @@ def get_shabbat_times():
     """
     try:
         # בניית URL לפי הגדרות
-        url = f"https://www.hebcal.com/shabbat?cfg=json&geonameid={GEONAME_ID}"
+        url = f"https://www.hebcal.com/shabbat?cfg=json&geonameid={geoname_id}"
         
         # הוספת הגדרת הבדלה אם הוגדרה
-        if HAVDALAH_OFFSET > 0:
-            url += f"&m={HAVDALAH_OFFSET}"
+        if havdalah_offset > 0:
+            url += f"&m={havdalah_offset}"
         else:
             url += "&M=on"  # חישוב אוטומטי (3 כוכבים)
         
@@ -71,7 +71,7 @@ def get_shabbat_times():
         return None
 
 
-def get_next_shabbat_times():
+def get_next_shabbat_times_for(geoname_id: str, havdalah_offset: int):
     """
     מושך את זמני השבת הקרובה
     אם כבר עבר זמן הדלקת הנרות, מושך את השבת הבאה
@@ -79,7 +79,7 @@ def get_next_shabbat_times():
     Returns:
         dict או None
     """
-    times = get_shabbat_times()
+    times = get_shabbat_times_for(geoname_id, havdalah_offset)
     
     if not times:
         return None
@@ -93,6 +93,15 @@ def get_next_shabbat_times():
         # לעת עתה נחזיר את מה שיש
     
     return times
+
+
+# תאימות לאחור: שימוש בהגדרות הגלובליות מהקונפיג כאשר לא עובדים במצב רב-קבוצות
+def get_shabbat_times():
+    return get_shabbat_times_for(config.GEONAME_ID, config.HAVDALAH_OFFSET)
+
+
+def get_next_shabbat_times():
+    return get_next_shabbat_times_for(config.GEONAME_ID, config.HAVDALAH_OFFSET)
 
 
 if __name__ == "__main__":
